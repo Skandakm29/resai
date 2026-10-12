@@ -38,6 +38,9 @@ from app.schemas.assistant import (
     Clarification,
     Comparison,
     ComparisonRow,
+    CourseSubtotal,
+    MealPlan,
+    PlanLine,
     Intent,
     ParsedQuery,
     Recommendation,
@@ -46,7 +49,8 @@ from app.schemas.assistant import (
 from app.services import menu_service
 from app.services.intent_rules import parse_message
 from app.services.matching import find_mentions, normalize, resolve_names
-from app.services.search import ScoredItem, describe_filters, matches, quantity_for, search
+from app.services.planner import build_plan, describe_plan, portions
+from app.services.search import ScoredItem, courses_of, describe_filters, matches, quantity_for, search
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +76,7 @@ class TurnResult:
     message: str
     recs: list[ScoredItem] = field(default_factory=list)
     comparison: Comparison | None = None
+    plan: MealPlan | None = None
     clarification: Clarification | None = None
     follow_ups: list[str] = field(default_factory=list)
     filters: SearchFilters = field(default_factory=SearchFilters)
@@ -154,7 +159,7 @@ class AssistantService:
         last_items = [by_id[i] for i in last_ids if i in by_id]
         cart_items = [by_id[c.item_id] for c in req.cart if c.item_id in by_id]
 
-        parsed, source = self._parse(req, conversation, items, previous, last_items)
+        parsed, source = self._parse(req, conversation, items, previous, last_items, state.get("last_intent"))
         result = self._execute(restaurant, parsed, items, previous, last_items, cart_items, req.message)
 
         notes: dict[str, str] = {}
@@ -185,7 +190,11 @@ class AssistantService:
             new_filters = previous or SearchFilters()
         else:
             new_filters = result.filters
-        shown_ids = [str(s.item.id) for s in result.recs] or [str(i.id) for i in last_items]
+        shown_ids = (
+            [str(s.item.id) for s in result.recs]
+            or ([str(line.item.id) for line in result.plan.lines] if result.plan else [])
+            or [str(i.id) for i in last_items]
+        )
         conversation.state = {
             "filters": new_filters.model_dump(mode="json"),
             "last_item_ids": shown_ids[:6],
@@ -216,6 +225,7 @@ class AssistantService:
             intent=result.intent,
             recommendations=recommendations,
             comparison=result.comparison,
+            plan=result.plan,
             clarification=result.clarification,
             follow_ups=result.follow_ups[:3],
             applied_filters=result.filters,
@@ -263,6 +273,7 @@ class AssistantService:
         items: list[MenuItem],
         previous: SearchFilters | None,
         last_items: list[MenuItem],
+        previous_intent: str | None = None,
     ) -> tuple[ParsedQuery, str]:
         if self.provider is not None:
             try:
@@ -274,6 +285,7 @@ class AssistantService:
                         "flavour_words": sorted({t for i in items for t in (i.flavor_tags or [])}),
                     },
                     "previous_filters": previous.model_dump(mode="json") if previous else None,
+                    "previous_intent": previous_intent,
                     "last_shown_items": [i.name for i in last_items],
                     "recent_conversation": self._history(req, conversation),
                     "customer_message": req.message,
@@ -289,7 +301,11 @@ class AssistantService:
             except LLMError as exc:
                 logger.warning("LLM parse failed, falling back to rules: %s", exc)
         parsed = parse_message(
-            req.message, items, previous, last_item_prices=[menu_service.price_from(i) for i in last_items]
+            req.message,
+            items,
+            previous,
+            last_item_prices=[menu_service.price_from(i) for i in last_items],
+            previous_intent=previous_intent,
         )
         return parsed, "rules"
 
@@ -322,6 +338,14 @@ class AssistantService:
         for amount in (result.filters.max_price, result.filters.min_price):
             if amount is not None:
                 allowed_amounts.add(amount)
+        if result.plan is not None:
+            p = result.plan
+            allowed_amounts |= {p.total, p.per_person} | {s.subtotal for s in p.course_subtotals}
+            allowed_amounts |= {l.unit_price for l in p.lines} | {l.line_total for l in p.lines}
+            if p.remaining is not None:
+                allowed_amounts.add(p.remaining)
+            if p.budget is not None:
+                allowed_amounts |= {p.budget, abs(p.total - p.budget)}
         payload = {
             "customer_message": customer_message,
             "intent": result.intent,
@@ -329,6 +353,23 @@ class AssistantService:
             "draft_reply": result.message,
             "results": results_payload,
             "comparison": result.comparison.model_dump(mode="json") if result.comparison else None,
+            "meal_plan": (
+                {
+                    "party_size": result.plan.party_size,
+                    "budget": str(result.plan.budget) if result.plan.budget is not None else None,
+                    "within_budget": result.plan.within_budget,
+                    "total": str(result.plan.total),
+                    "per_person": str(result.plan.per_person),
+                    "remaining": str(result.plan.remaining) if result.plan.remaining is not None else None,
+                    "lines": [
+                        {"course": l.course, "name": l.item.name, "option": l.variant_name, "quantity": l.quantity, "line_total": str(l.line_total)}
+                        for l in result.plan.lines
+                    ],
+                    "assumptions": result.plan.assumptions,
+                }
+                if result.plan
+                else None
+            ),
             "suggested_follow_ups": result.follow_ups,
         }
         data = self.provider.generate_json(
@@ -366,6 +407,8 @@ class AssistantService:
         intent = parsed.intent
         if intent in ("recommend", "cheapest"):
             return self._recommend(parsed, items, last_items)
+        if intent == "meal_plan":
+            return self._meal_plan(parsed, items)
         if intent == "compare":
             return self._compare(mentioned, last_items, items, parsed, f)
         if intent == "pairing":
@@ -484,6 +527,60 @@ class AssistantService:
         return TurnResult(
             intent=parsed.intent, message=" ".join(lines), recs=recs, follow_ups=follow_ups[:3], filters=f
         )
+
+    def _meal_plan(self, parsed: ParsedQuery, items: list[MenuItem]) -> TurnResult:
+        f = parsed.filters
+        courses = list(f.courses) or ["starter", "main"]
+        result = build_plan(items, f, courses)
+        lines = [
+            PlanLine(
+                course=p.course,  # type: ignore[arg-type]
+                item=menu_service.serialize_item(p.item),
+                variant_id=p.variant.id if p.variant is not None else None,
+                variant_name=p.variant.name if p.variant is not None else None,
+                quantity=p.quantity,
+                unit_price=p.unit_price,
+                line_total=p.line_total,
+            )
+            for p in result.picks
+        ]
+        plan = MealPlan(
+            party_size=result.party,
+            budget=result.budget,
+            lines=lines,
+            course_subtotals=[
+                CourseSubtotal(
+                    course=c,  # type: ignore[arg-type]
+                    items=sum(p.quantity for p in result.picks if p.course == c),
+                    subtotal=result.subtotal(c),
+                )
+                for c in ["starter", "main", "dessert", "drink"]
+                if c in result.courses
+            ],
+            total=result.total,
+            per_person=result.per_person,
+            remaining=result.remaining,
+            within_budget=result.within_budget,
+            assumptions=result.assumptions,
+        )
+        message = describe_plan(result)
+        follow_ups: list[str] = []
+        remaining = result.remaining
+        if result.within_budget and remaining is not None and "dessert" not in result.courses:
+            desserts = sorted(menu_service.price_from(i) for i in items if "dessert" in courses_of(i) and menu_service.is_orderable(i))
+            need = portions("dessert", result.party)
+            if len(desserts) >= need and sum(desserts[:need]) <= remaining:
+                message += f" That's enough left over for {need} dessert{'s' if need != 1 else ''}."
+            follow_ups.append("Add desserts")
+        elif "dessert" not in result.courses:
+            follow_ups.append("Add desserts")
+        if result.budget is not None and not result.within_budget:
+            follow_ups.append(f"Make it ₹{int((result.total + 99) // 100 * 100)}")
+        if "drink" not in result.courses:
+            follow_ups.append("Add drinks")
+        if "main" in result.courses and not f.keywords:
+            follow_ups.append("Only pasta mains")
+        return TurnResult(intent="meal_plan", message=message, plan=plan, follow_ups=follow_ups[:3], filters=f)
 
     def _follow_ups_for_results(self, f: SearchFilters, recs: list[ScoredItem]) -> list[str]:
         out: list[str] = []

@@ -44,6 +44,28 @@ class SearchOutcome:
     filters: SearchFilters | None = None
 
 
+STARTER_TAGS = {"starter", "soup", "salad", "appetizer", "toast", "bread", "shareable"}
+MAIN_TAGS = {"main", "pasta", "pizza", "wrap", "sandwich", "panuozzo", "calzone", "bowl"}
+STARTER_WORDS = ("appetizer", "appetiser", "starter", "small plate", "soup", "salad")
+MAIN_WORDS = ("main", "pasta", "pizza", "wrap")
+
+
+def courses_of(item: MenuItem) -> set[str]:
+    """Which courses an item can be served as (derived from tags + category)."""
+    if item.item_type == "beverage":
+        return {"drink"}
+    if item.item_type == "dessert":
+        return {"dessert"}
+    tags = set(item.tags or [])
+    category = (item.category.name if item.category else "").lower()
+    out: set[str] = set()
+    if tags & STARTER_TAGS or any(w in category for w in STARTER_WORDS):
+        out.add("starter")
+    if tags & MAIN_TAGS or any(w in category for w in MAIN_WORDS):
+        out.add("main")
+    return out
+
+
 def quantity_for(item: MenuItem, party_size: int) -> int:
     if party_size <= 1:
         return 1
@@ -73,8 +95,10 @@ class _Reject(Exception):
 def _check(item: MenuItem, f: SearchFilters, *, ignore: frozenset[str] = frozenset()) -> None:
     if not f.include_unavailable and not is_orderable(item):
         raise _Reject("unavailable")
-    if f.item_types and item.item_type not in f.item_types:
+    if f.item_types and "item_type" not in ignore and item.item_type not in f.item_types:
         raise _Reject("item_type")
+    if f.courses and "courses" not in ignore and not set(f.courses) & courses_of(item):
+        raise _Reject("course")
     if f.contains_coffee is not None and item.contains_coffee is not f.contains_coffee:
         raise _Reject("coffee")
     if f.temperature and "temperature" not in ignore and item.temperature != f.temperature:
@@ -226,7 +250,7 @@ def _scored(item: MenuItem, f: SearchFilters, *, over_budget=False) -> ScoredIte
 
 
 CONTEXT_FIELDS = {
-    "item_types": [], "contains_coffee": None, "temperature": None, "tags_any": [], "caffeine_free": False,
+    "item_types": [], "courses": [], "contains_coffee": None, "temperature": None, "tags_any": [], "caffeine_free": False,
     "max_sweetness": None, "min_sweetness": None, "min_strength": None, "max_strength": None,
 }
 
@@ -307,6 +331,8 @@ def describe_filters(f: SearchFilters) -> list[str]:
             out.append(type_names[t])
     if f.temperature:
         out.append("Cold" if f.temperature == "cold" else "Hot")
+    course_names = {"starter": "Starters", "main": "Mains", "dessert": "Desserts", "drink": "Drinks"}
+    out += [course_names[c] for c in f.courses if not (c == "dessert" and "dessert" in f.item_types)]
     out += [t.capitalize() for t in f.tags_any]
     out += [f"“{k}”" for k in f.keywords]
     if f.party_size > 1:

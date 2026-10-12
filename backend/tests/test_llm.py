@@ -33,7 +33,7 @@ class FakeProvider:
 
 def _filters(**overrides):
     base = {
-        "item_types": [], "contains_coffee": None, "temperature": None, "tags_any": [], "keywords": [],
+        "item_types": [], "courses": [], "contains_coffee": None, "temperature": None, "tags_any": [], "keywords": [],
         "max_price": None, "min_price": None, "party_size": 1, "dietary": [], "exclude_allergens": [],
         "caffeine_free": False, "max_sweetness": None, "min_sweetness": None, "min_strength": None,
         "max_strength": None, "sort": "relevance",

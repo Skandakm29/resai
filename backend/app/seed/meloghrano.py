@@ -402,8 +402,7 @@ MELOGHRANO = {
         assistant_name="Meloghrano Guide",
         welcome_message=(
             "Ciao! Craving wood-fired sourdough pizza, a creamy pasta or something sweet? Tell me your mood "
-            "and budget and I'll find it on the menu. (Unofficial demo built from Meloghrano's public menu; "
-            "prices may have changed, so please confirm at the café.)"
+            "and budget and I'll find it on the menu."
         ),
         suggested_prompts=[
             "Suggest a pizza for two",

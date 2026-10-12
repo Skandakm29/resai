@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ArrowUp, RefreshCw, RotateCcw, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PlanCard } from "@/components/assistant/plan-card";
 import { RecommendationCard } from "@/components/assistant/recommendation-card";
 import { useAssistant, type ChatMessage } from "@/components/assistant/assistant-context";
 import { assistantIcon } from "@/lib/brand";
@@ -127,6 +128,11 @@ function AssistantMessage({
       {r.comparison && (
         <div className="pl-10">
           <ComparisonTable comparison={r.comparison} />
+        </div>
+      )}
+      {r.plan && (
+        <div className="sm:pl-10">
+          <PlanCard plan={r.plan} />
         </div>
       )}
       {r.recommendations.length > 0 && (

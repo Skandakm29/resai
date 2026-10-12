@@ -16,13 +16,17 @@ from app.money import to_money
 from app.schemas.assistant import InfoTopic, Intent, ParsedQuery, SearchFilters
 from app.services.matching import contains_phrase, find_mentions_with_residual, normalize
 
-NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
+NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12,
+}
 
 # Words that map to structured filters, so they must not also become keywords.
 CONTROL_WORDS = {
     "coffee", "coffees", "espresso based", "cold", "hot", "iced", "warm", "sweet", "strong", "drink", "drinks",
     "tea", "teas", "food", "dessert", "desserts", "vegan", "vegetarian", "veg", "milk", "shareable",
     "beverage", "snack", "meal", "chilled", "bold", "mild", "light", "shake", "cooler",
+    "starter", "starters", "main", "mains", "appetizer", "appetizers", "course", "courses",
 }
 
 REFINEMENT_STARTERS = (
@@ -31,7 +35,7 @@ REFINEMENT_STARTERS = (
     "also", "now ", "ok ", "okay", "iced", "cold", "hot", "not ", "no ", "within", "prefer",
 )
 
-SUBJECT_FIELDS = ("item_types", "contains_coffee", "tags_any", "keywords", "caffeine_free")
+SUBJECT_FIELDS = ("item_types", "courses", "contains_coffee", "tags_any", "keywords", "caffeine_free")
 CARRY_OVER_FIELDS = ("max_price", "min_price", "party_size", "dietary", "exclude_allergens")
 
 
@@ -65,7 +69,11 @@ def extract_prices(raw: str) -> dict:
         rf"under|below|less than|lesser than|within|up ?to|upto|max(?:imum)?|at most|no more than|not more than|"
         rf"cheaper than|budget(?: of| is)?|<=?)\s*(?:rs\.?\s*)?{num}",
         text,
-    ) or re.search(rf"{num}\s*(?:rs\.?|/-)?\s*(?:or less|or under|max|budget)\b", text)
+    ) or re.search(rf"{num}\s*(?:rs\.?|/-)?\s*(?:or less|or under|max|budget)\b", text) or re.search(
+        rf"(?:make it|budget (?:to|of|is now)|raise (?:it |the budget )?to|increase (?:it |the budget )?to|"
+        rf"change (?:it |the budget )?to|reduce (?:it |the budget )?to|lower (?:it |the budget )?to)\s*(?:rs\.?\s*)?{num}",
+        text,
+    )
     if ceiling:
         out["max_price"] = _amount(ceiling.group(1))
     for floor in re.finditer(rf"\b(?:over|above|more than|at least|minimum|min)\s*(?:rs\.?\s*)?{num}", text):
@@ -82,9 +90,13 @@ def extract_prices(raw: str) -> dict:
 
 
 def extract_party_size(text: str) -> int | None:
-    nums = "|".join(list(NUMBER_WORDS) + [str(i) for i in range(2, 9)])
-    m = re.search(rf"\bfor (?:the )?({nums})\b(?! ?(?:rs|rupees|₹|inr|\d))", text) or re.search(
-        rf"\b({nums}) (?:people|persons|ppl|of us|friends|pax|adults|guests)\b", text
+    nums = "|".join(list(NUMBER_WORDS) + [str(i) for i in range(20, 1, -1)])
+    m = (
+        re.search(rf"\bfor (?:the )?({nums})\b(?! ?(?:rs|rupees|₹|inr|\d))", text)
+        or re.search(rf"\b({nums}) (?:people|persons|ppl|of us|friends|pax|adults|guests|members)\b", text)
+        or re.search(rf"\bgroup of ({nums})\b", text)
+        or re.search(rf"\bwe (?:are|re) (?:a )?(?:group of |party of |team of )?({nums})\b(?! ?(?:rs|rupees|₹|inr|\d))", text)
+        or re.search(rf"\bparty of ({nums})\b", text)
     )
     if m:
         v = m.group(1)
@@ -117,6 +129,29 @@ def _typo_keywords(text: str, vocab: set[str], already: list[str]) -> list[str]:
         if close and close[0] not in found and close[0] not in already:
             found.append(close[0])
     return found
+
+
+PLAN_WORDS = (
+    r"\bplan\b", r"\bcombo\b", r"\bmeal for\b", r"\bfull meal\b", r"\bfeed\b", r"\bspread\b",
+    r"what should (?:we|i) (?:order|get|have)", r"\border for (?:us|the group|all|everyone)",
+    r"\bcourses?\b", r"\bmulti.?course",
+)
+
+
+def _is_meal_plan(full: str, delta: dict) -> bool:
+    """Several courses, or a group asking what to order."""
+    kinds = set(delta.get("courses", []))
+    types = set(delta.get("item_types", []))
+    if "dessert" in types:
+        kinds.add("dessert")
+    if "beverage" in types:
+        kinds.add("drink")
+    party = delta.get("party_size", 1) or 1
+    if len(kinds) >= 2:
+        return True
+    if any(re.search(p, full) for p in PLAN_WORDS) and (party > 1 or kinds or delta.get("max_price")):
+        return True
+    return party > 1 and bool(delta.get("courses")) and bool(delta.get("max_price"))
 
 
 def build_vocabulary(items: list[MenuItem]) -> set[str]:
@@ -156,6 +191,7 @@ def parse_message(
     items: list[MenuItem],
     previous: SearchFilters | None = None,
     last_item_prices: list[Decimal] | None = None,
+    previous_intent: str | None = None,
 ) -> ParsedQuery:
     raw = message.strip()
     mentions, ambiguous, residual = find_mentions_with_residual(raw, items)
@@ -204,6 +240,19 @@ def parse_message(
         types.append("food")
     if types:
         delta["item_types"] = sorted(set(types), key=["beverage", "food", "dessert"].index)
+
+    # ---- courses ------------------------------------------------------------
+    courses: list[str] = []
+    if _has(text, r"\bstarters?\b", r"\bappeti[sz]ers?\b", r"\bsmall plates?\b"):
+        courses.append("starter")
+    if _has(text, r"\bmains?\b", r"\bmain course", r"\bmain dish", r"\bentr[eé]es?\b"):
+        courses.append("main")
+    if courses:
+        delta["courses"] = courses
+        # "starters"/"mains" are food; drop the generic food type that
+        # words like "meal" may have added.
+        if delta.get("item_types") == ["food"]:
+            delta.pop("item_types")
 
     # ---- temperature / taste ---------------------------------------------
     if _has(text, r"\bcold\b", r"\biced\b", r"\bice\b", r"\bchilled\b", r"\bcool\b", r"refreshing", r"\bfrappe", r"\bsummer"):
@@ -289,6 +338,8 @@ def parse_message(
         intent = "greeting"
     elif _has(full, r"\bcompare\b", r"\bvs\b", r"\bversus\b", r"difference between", r"which is better", r"which one is better", r"which (?:one|of these|of them) should"):
         intent = "compare"
+    elif _is_meal_plan(full, delta):
+        intent = "meal_plan"
     elif _has(full, r"\bpairs?\b", r"\bpairing\b", r"goes? (?:well )?with", r"\bwith my\b", r"along ?(?:side|with)", r"complement", r"to have with", r"to go with", r"accompan"):
         intent = "pairing"
     elif _has(full, r"(?:place|confirm|submit|track|cancel) (?:my |the |an |a )?order", r"\bcheckout\b", r"\bcheck out\b", r"\bpay(?:ment)?\b", r"order status", r"\bdeliver", r"how (?:do|can) i order"):
@@ -319,11 +370,59 @@ def parse_message(
         if strongest:
             limit = 3
 
+    continuing_plan = (
+        previous_intent == "meal_plan"
+        and previous is not None
+        and not reset
+        and intent in ("recommend", "cheapest", "meal_plan")
+        and not _has(full, r"^(?:show|list|recommend|suggest|find|which|is|does|tell)\b", r"^what(?! about)\b")
+        and (
+            full.startswith(REFINEMENT_STARTERS)
+            or len(full.split()) <= 6
+            or _has(full, r"\badd\b", r"\binclude\b", r"\balso\b", r"\binstead\b", r"\bbudget\b", r"\bplan\b", r"\bonly\b")
+        )
+    )
+    if continuing_plan:
+        intent = "meal_plan"
+
     # ---- merge with previous constraints ----------------------------------
     explicit_unset = {k for k, v in delta.items() if v is None}
     delta_clean = {k: v for k, v in delta.items() if v is not None}
+    if intent == "meal_plan":
+        # Plans are built per course: dessert/drink words become courses.
+        plan_courses = list(delta_clean.pop("courses", []))
+        plan_types = delta_clean.pop("item_types", [])
+        if "dessert" in plan_types:
+            plan_courses.append("dessert")
+        if "beverage" in plan_types:
+            plan_courses.append("drink")
+        delta_clean.pop("contains_coffee", None) if not plan_types else None
+        if continuing_plan:
+            # Mentioning a course modifies the plan ("only pasta mains", "add
+            # desserts") rather than replacing it - unless they say "instead".
+            course_words = (("starters?|appeti[sz]ers?", "starter"), ("mains?|main course", "main"),
+                            ("desserts?|sweets?", "dessert"), ("drinks?|beverages?|coffee", "drink"))
+            removed = {
+                course for word, course in course_words
+                if re.search(rf"\b(?:no|without|skip|remove|drop|minus|instead of)\s+(?:the\s+)?(?:{word})\b", full)
+            }
+            if _has(full, r"\binstead\b") and not _has(full, r"\binstead of\b"):
+                base_courses = []  # "desserts instead" -> replace
+            else:
+                base_courses = list(previous.courses)
+            plan_courses = base_courses + [c for c in plan_courses if c not in base_courses]
+            plan_courses = [c for c in plan_courses if c not in removed]
+        if plan_courses:
+            delta_clean["courses"] = plan_courses
+        if continuing_plan and _has(full, r"\bcheaper\b", r"less expensive", r"lower budget") and not extract_prices(raw):
+            # "cheaper" on a plan lowers the plan budget, not the dish price.
+            if previous.max_price:
+                delta_clean["max_price"] = to_money((previous.max_price * Decimal("0.85")) // 100 * 100)
+            sort = "relevance"
     if reset or previous is None or intent in ("greeting", "menu_overview"):
         base: dict = {}
+    elif continuing_plan:
+        base = previous.model_dump()
     else:
         prev = previous.model_dump()
         has_subject = any(k in delta_clean for k in SUBJECT_FIELDS)

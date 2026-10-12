@@ -104,12 +104,37 @@ export interface Comparison {
   rows: { label: string; values: string[] }[];
 }
 
+export type Course = "starter" | "main" | "dessert" | "drink";
+
+export interface PlanLine {
+  course: Course;
+  item: MenuItem;
+  variant_id: string | null;
+  variant_name: string | null;
+  quantity: number;
+  unit_price: string;
+  line_total: string;
+}
+
+export interface MealPlan {
+  party_size: number;
+  budget: string | null;
+  lines: PlanLine[];
+  course_subtotals: { course: Course; items: number; subtotal: string }[];
+  total: string;
+  per_person: string;
+  remaining: string | null;
+  within_budget: boolean;
+  assumptions: string[];
+}
+
 export interface ChatResponse {
   conversation_id: string;
   message: string;
   intent: string;
   recommendations: Recommendation[];
   comparison: Comparison | null;
+  plan?: MealPlan | null;
   clarification: { question: string; options: string[] } | null;
   follow_ups: string[];
   filter_summary: string[];

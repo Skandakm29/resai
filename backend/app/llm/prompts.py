@@ -19,7 +19,7 @@ from app.llm.base import LLMError
 from app.schemas.assistant import KNOWN_ALLERGENS, ParsedQuery
 
 INTENTS = [
-    "recommend", "cheapest", "compare", "pairing", "item_info", "menu_overview",
+    "recommend", "cheapest", "meal_plan", "compare", "pairing", "item_info", "menu_overview",
     "greeting", "order_help", "off_topic", "clarify",
 ]
 
@@ -33,6 +33,7 @@ FILTERS_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
     "properties": {
         "item_types": {"type": "array", "items": {"type": "string", "enum": ["beverage", "food", "dessert"]}},
+        "courses": {"type": "array", "items": {"type": "string", "enum": ["starter", "main", "dessert", "drink"]}},
         "contains_coffee": _nullable({"type": "boolean"}),
         "temperature": _nullable({"type": "string", "enum": ["hot", "cold"]}),
         "tags_any": {"type": "array", "items": {"type": "string"}},
@@ -75,6 +76,7 @@ Return the COMPLETE set of filters that should apply after this message:
 - If they ask to start over, return default filters.
 
 Field rules:
+- courses: starter, main, dessert, drink. Use for "starters", "main course", and for the courses of a meal plan.
 - item_types: beverage, food, dessert. "coffee" means item_types=[beverage] and contains_coffee=true. "without coffee" means contains_coffee=false.
 - tags_any: only use tags from menu.tags (e.g. tea, shake, cooler, shareable).
 - keywords: specific flavours or dish words the customer asked for that appear in menu.flavour_words or dish names (e.g. "chocolate", "latte"). Do not put words already captured by other fields here.
@@ -87,6 +89,7 @@ Field rules:
 
 Intents:
 - recommend: suggestions matching constraints. cheapest: the lowest priced options. compare: comparing specific items.
+- meal_plan: the customer wants a combination for a meal or group (e.g. "4 of us, starters and mains, budget 2000"). Set party_size, max_price (total budget for the group) and courses (default starter + main). If previous_intent is meal_plan and the customer adjusts it ("make it 2500", "add desserts", "only pasta mains", "no starters"), keep meal_plan and update the previous filters accordingly.
 - pairing: what goes well with an item. item_info: a question about one specific item (allergens, vegan, ingredients, availability, price, caffeine) - set info_topic.
 - menu_overview, greeting, order_help (placing/paying/tracking orders), off_topic (unrelated to the café), clarify (too vague to act on).
 - mentioned_items: exact dish names from menu.items that the customer referred to. refers_to_previous: true when they say "these", "both", "the first one" about items shown last turn.

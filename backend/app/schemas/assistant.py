@@ -8,9 +8,11 @@ from app.money import to_money
 from app.schemas.menu import MenuItemOut
 
 ItemType = Literal["beverage", "food", "dessert"]
+Course = Literal["starter", "main", "dessert", "drink"]
 Intent = Literal[
     "recommend",  # open-ended suggestions with constraints
     "cheapest",  # lowest-priced options
+    "meal_plan",  # a combination of dishes across courses for a group/budget
     "compare",  # compare two or more specific items
     "pairing",  # what goes with an anchor item
     "item_info",  # question about a specific item (allergens, vegan, availability...)
@@ -30,6 +32,7 @@ class SearchFilters(BaseModel):
     """Structured search criteria. Applied deterministically by the backend."""
 
     item_types: list[ItemType] = Field(default_factory=list)
+    courses: list[Course] = Field(default_factory=list)
     contains_coffee: bool | None = None
     temperature: Literal["hot", "cold"] | None = None
     tags_any: list[str] = Field(default_factory=list, max_length=10)
@@ -153,6 +156,36 @@ class Comparison(BaseModel):
     rows: list[ComparisonRow]
 
 
+class PlanLine(BaseModel):
+    course: Course
+    item: MenuItemOut
+    variant_id: UUID | None = None
+    variant_name: str | None = None
+    quantity: int
+    unit_price: Decimal
+    line_total: Decimal
+
+
+class CourseSubtotal(BaseModel):
+    course: Course
+    items: int
+    subtotal: Decimal
+
+
+class MealPlan(BaseModel):
+    """A concrete order built by the backend; every amount is computed, never generated."""
+
+    party_size: int
+    budget: Decimal | None
+    lines: list[PlanLine]
+    course_subtotals: list[CourseSubtotal]
+    total: Decimal
+    per_person: Decimal
+    remaining: Decimal | None
+    within_budget: bool
+    assumptions: list[str]
+
+
 class Clarification(BaseModel):
     question: str
     options: list[str]
@@ -164,6 +197,7 @@ class ChatResponse(BaseModel):
     intent: Intent
     recommendations: list[Recommendation]
     comparison: Comparison | None = None
+    plan: MealPlan | None = None
     clarification: Clarification | None = None
     follow_ups: list[str]
     applied_filters: SearchFilters
