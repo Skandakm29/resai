@@ -1,0 +1,65 @@
+# Render Blueprint: Postgres + FastAPI backend + Next.js frontend.
+# Render dashboard -> New -> Blueprint -> pick this repo.
+#
+# Demo mode: no LLM key needed. To enable Claude later, set
+# ASSISTANT_DEMO_MODE=false and add ANTHROPIC_API_KEY on resai-coffee-api
+# in the dashboard (never commit the key).
+
+databases:
+  - name: resai-coffee-db
+    plan: free
+    region: singapore
+    databaseName: reschatbot
+    user: reschat
+
+services:
+  - type: web
+    name: resai-coffee-api
+    runtime: python
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Migrations + idempotent seed on every start (the free plan has no
+    # separate pre-deploy step). The seed skips restaurants that already exist.
+    startCommand: alembic upgrade head && python -m app.seed.seed && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: resai-coffee-db
+          property: connectionString
+      - key: ASSISTANT_DEMO_MODE
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      # Render's proxy sits in front of the service, so the client IP is
+      # only available from X-Forwarded-For.
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
+      - key: CORS_ORIGINS
+        value: https://resai-coffee-web.onrender.com
+
+  - type: web
+    name: resai-coffee-web
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      # Public URL of the API service above. Render normally assigns
+      # https://<service-name>.onrender.com; if the dashboard shows a
+      # different URL for resai-coffee-api, update this value and redeploy
+      # (it is baked into the /api proxy at build time).
+      - key: BACKEND_URL
+        value: https://resai-coffee-api.onrender.com
+      - key: DEFAULT_RESTAURANT_SLUG
+        value: fernwood

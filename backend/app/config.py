@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,6 +44,16 @@ class Settings(BaseSettings):
 
     # Protects onboarding/admin endpoints. Unset = those endpoints are disabled.
     admin_api_key: SecretStr | None = None
+
+    @field_validator("database_url")
+    @classmethod
+    def _psycopg_driver(cls, v: str) -> str:
+        # Hosting providers (Render, Heroku, ...) hand out postgres:// or
+        # postgresql:// URLs; SQLAlchemy needs the psycopg 3 driver named.
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -13,13 +13,14 @@ export class ApiError extends Error {
 
 /** Server components call the backend directly; the browser goes through the Next.js /api proxy. */
 function baseUrl(): string {
-  if (typeof window === "undefined") return process.env.BACKEND_URL || "http://127.0.0.1:8000";
+  if (typeof window === "undefined") return (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
   return "";
 }
 
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? 30000);
+  // Server-side calls get longer: a sleeping free-tier backend can take ~a minute to wake.
+  const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? (typeof window === "undefined" ? 70000 : 30000));
   let res: Response;
   try {
     res = await fetch(`${baseUrl()}${path}`, {

@@ -1,5 +1,43 @@
 # Deployment
 
+## Render (one-click Blueprint)
+
+`render.yaml` at the repo root defines three free-tier resources, all in the
+Singapore region:
+
+| Resource | What it runs |
+|---|---|
+| `resai-coffee-db` | PostgreSQL |
+| `resai-coffee-api` | FastAPI. On every start it runs `alembic upgrade head`, then the idempotent seed, then uvicorn. Health check: `/api/health` |
+| `resai-coffee-web` | Next.js. Proxies `/api/*` to `BACKEND_URL` |
+
+Steps:
+
+1. Push the repo to GitHub.
+2. Render dashboard → **New → Blueprint** → select the repo → **Apply**.
+3. When the first deploy finishes, open the `resai-coffee-api` service and
+   check its URL. If it isn't exactly `https://resai-coffee-api.onrender.com`
+   (Render adds a suffix when a name is taken), set `BACKEND_URL` on
+   `resai-coffee-web` to the real URL and click **Manual Deploy**. The URL is
+   baked into the proxy at build time, so a redeploy is required. Also update
+   `CORS_ORIGINS` on the API to the web service's real URL.
+4. Open the `resai-coffee-web` URL.
+
+Free-tier caveats:
+
+- Services sleep when idle. The first request after a pause can take about a
+  minute while both services wake up. Server-side fetches allow 70 seconds
+  for this.
+- Free Postgres databases expire after a limited period. Check the Render
+  dashboard for the date, and upgrade the plan to keep the data.
+- The demo runs with `ASSISTANT_DEMO_MODE=true`. To use Claude, set it to
+  `false` and add `ANTHROPIC_API_KEY` as a secret env var on
+  `resai-coffee-api`.
+- `TRUST_PROXY_HEADERS=true` is required because Render's proxy hides the
+  client IP. The limiter keys on the first `X-Forwarded-For` entry, which a
+  client can forge. That's acceptable for a demo; for production, enforce
+  limits at an edge you control.
+
 ## Components
 
 | Component | Runs as | Notes |

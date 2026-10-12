@@ -94,6 +94,11 @@ The provider is behind a small `LLMProvider` protocol
 | Reseed | `cd backend && .venv/bin/python -m app.seed.seed --reset` |
 | Production build | `cd frontend && npm run build && npm start` / `uvicorn app.main:app --workers 2` |
 
+## Deploy
+
+`render.yaml` is a Render Blueprint for Postgres, the API and the frontend.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#render-one-click-blueprint).
+
 ## API
 
 | Method | Path | Purpose |

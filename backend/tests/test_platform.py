@@ -48,3 +48,10 @@ def test_openapi_docs_available(client):
         "/api/cart/validate",
     ]:
         assert p in paths
+
+
+def test_database_url_gets_psycopg_driver():
+    from app.config import Settings
+
+    for raw in ("postgres://u:p@h:5432/db", "postgresql://u:p@h:5432/db", "postgresql+psycopg://u:p@h:5432/db"):
+        assert Settings(database_url=raw).database_url == "postgresql+psycopg://u:p@h:5432/db"
