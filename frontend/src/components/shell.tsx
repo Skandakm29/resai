@@ -122,10 +122,10 @@ function ShellInner({ restaurant, children }: { restaurant: Restaurant; children
   const openCart = React.useCallback(() => setCartOpen(true), []);
   return (
     <CartDrawerContext.Provider value={openCart}>
-      <div className="flex h-dvh flex-col overflow-hidden">
+      <div className="relative flex h-dvh flex-col overflow-hidden">
         <Header restaurant={restaurant} onOpenCart={openCart} />
         <MobileCartBar onOpen={openCart} />
-        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="relative min-h-0 flex-1 overflow-y-auto">{children}</main>
       </div>
       <Dialog open={cartOpen} onOpenChange={setCartOpen}>
         <DialogContent side="right">

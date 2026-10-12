@@ -210,7 +210,7 @@ export function Chat({ restaurant }: { restaurant: Restaurant }) {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite" aria-busy={pending}>
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite" aria-busy={pending}>
         {messages.length === 0 ? (
           <Welcome restaurant={restaurant} onPick={submit} disabled={pending} />
         ) : (

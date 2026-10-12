@@ -45,3 +45,12 @@ describe("Responsive layout", () => {
   });
 });
 
+
+describe("Page scrolling", () => {
+  it("anchors the chat scroller so hidden labels can't stretch the page", async () => {
+    const { Chat } = await import("@/components/assistant/chat");
+    renderWithProviders(<Chat restaurant={restaurant} />);
+    const scroller = document.querySelector("[aria-live='polite']");
+    expect(scroller).toHaveClass("relative", "overflow-y-auto");
+  });
+});
