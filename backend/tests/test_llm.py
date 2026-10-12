@@ -165,3 +165,15 @@ def test_dish_names_in_text_are_used_when_llm_omits_them(client, use_provider):
     assert resp["clarification"] is None
     assert "Classic Cold Brew" in resp["message"]
     assert all(r["item"]["item_type"] == "dessert" for r in resp["recommendations"])
+
+
+def test_new_word_outranks_carried_over_type_filters(client, use_provider):
+    # Reproduces the live bug: after coffee questions, the LLM keeps
+    # contains_coffee=True and adds the new keyword, which matches nothing.
+    parse = {**COFFEE_250, "filters": _filters(item_types=["beverage"], contains_coffee=True, keywords=["croissant"], max_price=250)}
+    use_provider(FakeProvider(parse=parse, compose=LLMError("skip")))
+    resp = chat(client, "croissant options")
+    names = [r["item"]["name"] for r in resp["recommendations"]]
+    assert names and all("Croissant" in n for n in names)
+    assert resp["applied_filters"]["contains_coffee"] is None  # set aside, budget kept
+    assert resp["applied_filters"]["max_price"] == "250.00"

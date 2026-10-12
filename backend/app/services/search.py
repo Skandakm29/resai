@@ -40,6 +40,8 @@ class SearchOutcome:
     unavailable_matches: list[MenuItem] = field(default_factory=list)
     # Items excluded only because their allergen data is unverified.
     unknown_allergen_items: list[MenuItem] = field(default_factory=list)
+    # The filters actually applied (may be relaxed - see ``relaxed``).
+    filters: SearchFilters | None = None
 
 
 def quantity_for(item: MenuItem, party_size: int) -> int:
@@ -223,30 +225,63 @@ def _scored(item: MenuItem, f: SearchFilters, *, over_budget=False) -> ScoredIte
     )
 
 
+CONTEXT_FIELDS = {
+    "item_types": [], "contains_coffee": None, "temperature": None, "tags_any": [], "caffeine_free": False,
+    "max_sweetness": None, "min_sweetness": None, "min_strength": None, "max_strength": None,
+}
+
+
+def _has_context(f: SearchFilters) -> bool:
+    return any(getattr(f, k) != v for k, v in CONTEXT_FIELDS.items())
+
+
+def _over_budget(items: list[MenuItem], f: SearchFilters, ignore: frozenset[str]) -> list[ScoredItem]:
+    near = [_scored(i, f, over_budget=True) for i in items if matches(i, f, ignore=ignore)]
+    return sorted(near, key=lambda s: s.total)[:2]
+
+
 def search(items: list[MenuItem], f: SearchFilters, *, limit: int = 4) -> SearchOutcome:
     hits = [_scored(i, f) for i in items if matches(i, f)]
-    outcome = SearchOutcome(matches=_sort(hits, f)[:limit])
+    outcome = SearchOutcome(matches=_sort(hits, f)[:limit], filters=f)
+    has_budget = f.max_price is not None or f.min_price is not None
 
-    if not outcome.matches and f.keywords:
-        # Keywords are soft: retry without them, and say so in the reply.
-        relaxed = [_scored(i, f) for i in items if matches(i, f, ignore=frozenset({"keywords"}))]
-        if relaxed and (f.item_types or f.contains_coffee is not None or f.tags_any or f.temperature):
-            outcome.matches = _sort(relaxed, f)[:limit]
-            outcome.relaxed.append("keywords")
+    if not outcome.matches and f.keywords and _has_context(f):
+        # The words the customer just used ("pasta") outrank type/taste
+        # constraints carried over from earlier turns ("coffee", "cold").
+        # Budget, party size and dietary/allergen constraints are kept.
+        f2 = f.model_copy(update=CONTEXT_FIELDS)
+        hits2 = [_scored(i, f2) for i in items if matches(i, f2)]
+        if hits2:
+            outcome.matches = _sort(hits2, f2)[:limit]
+            outcome.relaxed.append("context")
+            outcome.filters = f2
+        elif has_budget:
+            alts = _over_budget(items, f2, frozenset({"price"}))
+            if alts:
+                outcome.alternatives = alts
+                outcome.relaxed.append("context")
+                outcome.filters = f2
 
-    if not outcome.matches:
-        if f.max_price is not None or f.min_price is not None:
+    if not outcome.matches and not outcome.alternatives and f.keywords:
+        if has_budget:
+            # Same words, above budget (e.g. no pasta under ₹250).
+            outcome.alternatives = _over_budget(items, f, frozenset({"price"}))
+        if not outcome.alternatives:
+            # Keywords are soft: retry without them, and say so in the reply.
+            relaxed = [_scored(i, f) for i in items if matches(i, f, ignore=frozenset({"keywords"}))]
+            if relaxed and _has_context(f):
+                outcome.matches = _sort(relaxed, f)[:limit]
+                outcome.relaxed.append("keywords")
+
+    if not outcome.matches and not outcome.alternatives:
+        if has_budget:
             # Closest real options outside the budget, clearly flagged.
-            near = [
-                _scored(i, f, over_budget=True)
-                for i in items
-                if matches(i, f, ignore=frozenset({"price", "keywords"}))
-            ]
-            outcome.alternatives = sorted(near, key=lambda s: s.total)[:2]
-        elif f.temperature or f.max_sweetness or f.min_sweetness or f.min_strength or f.max_strength or f.tags_any:
+            outcome.alternatives = _over_budget(items, f, frozenset({"price", "keywords"}))
+        elif _has_context(f):
             near = [_scored(i, f) for i in items if matches(i, f, ignore=frozenset({"temperature", "taste", "tags"}))]
             outcome.alternatives = _sort(near, f)[:2]
 
+    f = outcome.filters or f
     unavailable_f = f.model_copy(update={"include_unavailable": True})
     outcome.unavailable_matches = [
         i for i in items if not is_orderable(i) and matches(i, unavailable_f)

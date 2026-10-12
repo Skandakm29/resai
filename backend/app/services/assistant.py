@@ -417,6 +417,7 @@ class AssistantService:
         if parsed.intent == "cheapest" and f.sort != "price_asc":
             f = f.model_copy(update={"sort": "price_asc"})
         outcome = search(items, f, limit=parsed.limit)
+        f = outcome.filters or f  # carried-over constraints may have been set aside
         noun_n = len(outcome.matches)
         qualifier = _qualifier(f)
         lines: list[str] = []

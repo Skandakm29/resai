@@ -180,3 +180,15 @@ def test_follow_up_question_about_shown_item(client):
     # The question does not change the active search.
     again = chat(client, "and hot", first["conversation_id"])
     assert again["applied_filters"]["max_sweetness"] == 2
+
+
+def test_switching_to_food_after_coffee_keeps_the_new_word(client):
+    first = chat(client, "Recommend a coffee under ₹250", slug="meloghrano")
+    conv = first["conversation_id"]
+    chat(client, "Something cold", conv, slug="meloghrano")
+    pasta = chat(client, "Pasta options", conv, slug="meloghrano")
+    assert pasta["recommendations"]
+    assert all(r["over_budget"] for r in pasta["recommendations"])  # no pasta under ₹250 ...
+    assert all(r["item"]["item_type"] == "food" for r in pasta["recommendations"])  # ... but still pasta, not coffee
+    wider = chat(client, "any price is fine", conv, slug="meloghrano")
+    assert wider["recommendations"] and all("Pasta" in r["item"]["name"] for r in wider["recommendations"])
