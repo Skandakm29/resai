@@ -192,3 +192,13 @@ def test_switching_to_food_after_coffee_keeps_the_new_word(client):
     assert all(r["item"]["item_type"] == "food" for r in pasta["recommendations"])  # ... but still pasta, not coffee
     wider = chat(client, "any price is fine", conv, slug="meloghrano")
     assert wider["recommendations"] and all("Pasta" in r["item"]["name"] for r in wider["recommendations"])
+
+
+def test_misspelled_dish_words_are_understood(client):
+    for typo, expected in [("piza", "Pizza"), ("pastaa", "Pasta"), ("lasagne", "Lasagna")]:
+        resp = chat(client, f"show me {typo}", slug="meloghrano")
+        names = [r["item"]["name"] for r in resp["recommendations"]]
+        assert names and all(expected in n or "Mac and Cheese" in n or "Gnocchi" in n for n in names), (typo, names)
+    # Ordinary words are never "corrected" into menu words.
+    resp = chat(client, "Recommend a coffee", slug="meloghrano")
+    assert all(r["item"]["contains_coffee"] for r in resp["recommendations"])

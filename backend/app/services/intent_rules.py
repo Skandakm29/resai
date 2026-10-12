@@ -7,6 +7,7 @@ not recognise is ignored rather than guessed.
 
 from __future__ import annotations
 
+import difflib
 import re
 from decimal import Decimal
 
@@ -93,12 +94,41 @@ def extract_party_size(text: str) -> int | None:
     return None
 
 
+# Common words that must never be "corrected" into menu words.
+COMMON_WORDS = {
+    "show", "want", "need", "like", "with", "without", "some", "something", "anything", "options", "option",
+    "please", "recommend", "suggest", "find", "give", "have", "what", "which", "that", "this", "your", "under",
+    "below", "above", "over", "cheap", "cheaper", "cheapest", "price", "budget", "people", "friends", "today",
+    "good", "best", "nice", "more", "less", "only", "also", "make", "about", "search", "looking", "menu",
+    "much", "many", "there", "their", "they", "from", "into", "after", "before", "order", "same", "other",
+}
+
+
+def _typo_keywords(text: str, vocab: set[str], already: list[str]) -> list[str]:
+    """Map near-miss words ("piza", "tiramsu") onto the menu's own vocabulary."""
+    single = sorted({w for v in vocab for w in v.split() if len(w) >= 4})
+    found: list[str] = []
+    for tok in text.split():
+        if len(tok) < 4 or tok in COMMON_WORDS or tok in CONTROL_WORDS or tok in single:
+            continue
+        if any(contains_phrase(k, tok) for k in already):
+            continue
+        close = difflib.get_close_matches(tok, single, n=1, cutoff=0.85)
+        if close and close[0] not in found and close[0] not in already:
+            found.append(close[0])
+    return found
+
+
 def build_vocabulary(items: list[MenuItem]) -> set[str]:
     vocab: set[str] = set()
     for it in items:
         for w in list(it.flavor_tags or []) + list(it.search_keywords or []) + list(it.tags or []):
             w = normalize(w)
             if w and w not in CONTROL_WORDS and len(w) > 2:
+                vocab.add(w)
+        # Distinctive dish words ("tiramisu", "lasagna") help typo matching.
+        for w in normalize(it.name).split():
+            if len(w) >= 5 and w not in CONTROL_WORDS and w not in COMMON_WORDS:
                 vocab.add(w)
     return vocab
 
@@ -241,6 +271,7 @@ def parse_message(
     vocab = build_vocabulary(items)
     keywords = [w for w in sorted(vocab, key=len, reverse=True) if contains_phrase(text, w)]
     keywords += [a for a in ambiguous if a not in CONTROL_WORDS]
+    keywords += _typo_keywords(text, vocab, keywords)
     # Avoid keywords that are substrings of longer keywords already found.
     deduped: list[str] = []
     for k in keywords:
