@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 38% 96%;
+    --foreground: 150 18% 12%;
+    --card: 40 50% 99%;
+    --card-foreground: 150 18% 12%;
+    --popover: 40 50% 99%;
+    --popover-foreground: 150 18% 12%;
+    --primary: 153 40% 21%;
+    --primary-foreground: 40 40% 97%;
+    --secondary: 33 38% 90%;
+    --secondary-foreground: 24 38% 22%;
+    --accent: 36 45% 88%;
+    --accent-foreground: 24 38% 22%;
+    --muted: 38 25% 92%;
+    --muted-foreground: 28 9% 38%;
+    --destructive: 2 62% 44%;
+    --destructive-foreground: 40 40% 97%;
+    --border: 35 22% 85%;
+    --input: 35 22% 80%;
+    --ring: 153 40% 30%;
+    --coffee: 24 38% 28%;
+    --coffee-light: 30 40% 80%;
+    --radius: 1rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
