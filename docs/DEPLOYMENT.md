@@ -30,9 +30,11 @@ Free-tier caveats:
   for this.
 - Free Postgres databases expire after a limited period. Check the Render
   dashboard for the date, and upgrade the plan to keep the data.
-- The demo runs with `ASSISTANT_DEMO_MODE=true`. To use Claude, set it to
-  `false` and add `ANTHROPIC_API_KEY` as a secret env var on
-  `resai-coffee-api`.
+- The assistant uses Groq. Render asks for `GROQ_API_KEY` when you apply
+  the Blueprint. If you leave it blank (or add it later under
+  `resai-coffee-api` → Environment), the assistant runs in rule-based mode
+  until a key is set. Groq's free tier allows only a few AI-assisted messages
+  per minute; beyond that, messages fall back to the rules automatically.
 - `TRUST_PROXY_HEADERS=true` is required because Render's proxy hides the
   client IP. The limiter keys on the first `X-Forwarded-For` entry, which a
   client can forge. That's acceptable for a demo; for production, enforce
@@ -65,8 +67,8 @@ Production environment (see `backend/.env.example`):
 - `DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/DB?sslmode=require`
 - `CORS_ORIGINS=https://your-frontend.example`. Only needed if browsers call
   the API directly. With the Next.js proxy, browsers never do.
-- `ASSISTANT_DEMO_MODE=false`, `ANTHROPIC_API_KEY=<from your secret
-  manager>`. To run without an LLM, keep demo mode on.
+- `ASSISTANT_DEMO_MODE=false`, `LLM_PROVIDER=groq`,
+  `GROQ_API_KEY=<from your secret manager>`. To run without an LLM, keep demo mode on.
 - `TRUST_PROXY_HEADERS=true` **only** when the service sits behind a load
   balancer that sets `X-Forwarded-For`. Otherwise clients can spoof their
   IP and dodge rate limits.
@@ -115,5 +117,5 @@ BACKEND_URL=https://api.internal.example npm start   # port 3000
 
 - Never commit `.env` files. `.gitignore` excludes them and only
   `*.env.example` placeholders are tracked.
-- `ANTHROPIC_API_KEY` and `ADMIN_API_KEY` belong in your platform's secret
+- `GROQ_API_KEY` (or `XAI_API_KEY` / `ANTHROPIC_API_KEY`) and `ADMIN_API_KEY` belong in your platform's secret
   manager.

@@ -19,7 +19,7 @@ class FakeProvider:
         self.compose = compose
         self.calls: list[str] = []
 
-    def generate_json(self, *, system, user, schema, max_tokens):
+    def generate_json(self, *, system, user, schema, max_tokens, model=None):
         step = "parse" if schema is PARSE_SCHEMA else "compose"
         assert schema in (PARSE_SCHEMA, COMPOSE_SCHEMA)
         self.calls.append(step)
@@ -156,3 +156,12 @@ def test_prohibited_claims_rejected():
             allowed_item_ids=set(),
             allowed_amounts=set(),
         )
+
+
+def test_dish_names_in_text_are_used_when_llm_omits_them(client, use_provider):
+    parse = {**COFFEE_250, "intent": "pairing", "mentioned_items": [], "filters": _filters(item_types=["dessert"])}
+    use_provider(FakeProvider(parse=parse, compose=LLMError("skip")))
+    resp = chat(client, "something sweet to go with a cold brew")
+    assert resp["clarification"] is None
+    assert "Classic Cold Brew" in resp["message"]
+    assert all(r["item"]["item_type"] == "dessert" for r in resp["recommendations"])

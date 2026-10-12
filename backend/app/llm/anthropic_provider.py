@@ -34,9 +34,11 @@ class AnthropicProvider:
         self._effort = effort
         self._refusal_fallback = refusal_fallback
 
-    def generate_json(self, *, system: str, user: str, schema: dict[str, Any], max_tokens: int) -> dict[str, Any]:
+    def generate_json(
+        self, *, system: str, user: str, schema: dict[str, Any], max_tokens: int, model: str | None = None
+    ) -> dict[str, Any]:
         kwargs: dict[str, Any] = dict(
-            model=self._model,
+            model=model or self._model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],

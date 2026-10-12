@@ -13,6 +13,8 @@ os.environ.setdefault(
 os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
 os.environ["ASSISTANT_DEMO_MODE"] = "true"  # never call a real LLM from tests
 os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["GROQ_API_KEY"] = ""
+os.environ["XAI_API_KEY"] = ""
 os.environ["RATE_LIMIT_CHAT_PER_MINUTE"] = "1000"
 os.environ["RATE_LIMIT_SEARCH_PER_MINUTE"] = "1000"
 os.environ["ADMIN_API_KEY"] = "test-admin-key"

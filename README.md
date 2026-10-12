@@ -70,18 +70,25 @@ npm run dev
 | Setting | Behaviour |
 |---|---|
 | `ASSISTANT_DEMO_MODE=true` (default in `.env.example`) | No LLM calls. Rule-based intent parsing and deterministic replies. No key needed. |
-| `ASSISTANT_DEMO_MODE=false` + `ANTHROPIC_API_KEY=...` | Claude (`LLM_MODEL`, default `claude-opus-5-5`, `LLM_EFFORT=low`) parses intent and rewords replies. Retrieval stays deterministic. |
-| LLM enabled but failing (timeout, refusal, invalid JSON) | Automatically falls back to rules for that message. |
+| `ASSISTANT_DEMO_MODE=false` + `LLM_PROVIDER=groq` + `GROQ_API_KEY=...` (default) | Groq parses intent (`LLM_MODEL`) and rewords replies (`LLM_COMPOSE_MODEL`). Retrieval stays deterministic. |
+| `LLM_PROVIDER=xai` + `XAI_API_KEY` / `LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` | Same pipeline on xAI Grok or Claude. |
+| LLM enabled but failing (timeout, rate limit, refusal, invalid JSON) | Automatically falls back to rules for that message. |
 
-`GET /api/health` reports `assistant_mode: "rules" | "llm"`. With
-`LLM_REFUSAL_FALLBACK=true`, requests opt into the Anthropic API's
-server-side refusal fallback (`fallbacks: "default"`, beta
-`server-side-fallback-2026-07-01`). Disable it if your platform does not
-support that beta.
+`GET /api/health` reports `assistant_mode` (`"rules"` or `"llm"`) and the
+active `provider:model`.
 
-The provider is behind a small `LLMProvider` protocol
-(`backend/app/llm/base.py`). To add another vendor, implement
-`generate_json()` and register it in `app/llm/factory.py`.
+**Groq free tier:** limits are per model (8,000 tokens/minute on the test
+account), and each chat message makes two calls of about 1.3k to 2k tokens.
+Using different models for `LLM_MODEL` and `LLM_COMPOSE_MODEL` gives each
+step its own budget. When a limit is hit, that message is answered by the
+rule-based mode, so customers still get correct answers. For real traffic,
+use a paid Groq tier.
+
+Groq and xAI share one OpenAI-compatible provider
+(`backend/app/llm/openai_compatible.py`). Claude uses the Anthropic SDK
+(`anthropic_provider.py`). To add a vendor, implement
+`generate_json()` from `backend/app/llm/base.py` and register it in
+`app/llm/factory.py`.
 
 ## Commands
 
@@ -145,9 +152,8 @@ See [docs/TESTING.md](docs/TESTING.md#sample-conversations) for the full list:
 
 - The rule-based parser covers common café phrasings but is not a general
   language model. Unusual phrasings may need the LLM mode.
-- The LLM path is covered by tests with a fake provider. It has **not** been
-  exercised against the live Anthropic API in this repository's test runs
-  (no key was available).
+- The Groq path has been exercised against the live Groq API. The xAI and
+  Anthropic providers are only covered by tests with mocked responses.
 - The rate limiter is in-process. Use a shared limiter for multiple replicas
   (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 - There is no authentication for customers. Conversations are anonymous and

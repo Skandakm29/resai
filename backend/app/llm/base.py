@@ -17,5 +17,8 @@ class LLMError(Exception):
 class LLMProvider(Protocol):
     name: str
 
-    def generate_json(self, *, system: str, user: str, schema: dict[str, Any], max_tokens: int) -> dict[str, Any]:
+    def generate_json(
+        self, *, system: str, user: str, schema: dict[str, Any], max_tokens: int, model: str | None = None
+    ) -> dict[str, Any]:
+        """``model`` overrides the provider's default model for this call."""
         ...

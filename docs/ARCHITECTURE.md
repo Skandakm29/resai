@@ -35,7 +35,7 @@ in FastAPI.
 | `services/matching.py` | Resolves item names and aliases in text to real items; drops unknown names |
 | `services/assistant.py` | Orchestration per intent: recommend, cheapest, compare, pairing, item_info, menu_overview, greeting, order_help, off_topic, clarify |
 | `services/cart.py` | Server-side cart validation. Client prices are informational only |
-| `llm/` | Provider protocol, Anthropic implementation, prompts, JSON schemas, output validators |
+| `llm/` | Provider protocol, OpenAI-compatible provider (Groq, xAI), Anthropic provider, prompts, JSON schemas, output validators |
 | `ratelimit.py` | Sliding-window limiter dependency for public AI endpoints |
 | `ingestion/text_parser.py` | Onboarding foundation: menu text to reviewable draft |
 

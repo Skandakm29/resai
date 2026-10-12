@@ -7,6 +7,9 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_MODELS = {"groq": "openai/gpt-oss-120b", "xai": "grok-4", "anthropic": "claude-opus-5-5"}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -23,11 +26,25 @@ class Settings(BaseSettings):
     # When true the assistant never calls an LLM: intent parsing and replies
     # are fully deterministic. Also the effective mode when no key is set.
     assistant_demo_mode: bool = False
-    llm_provider: Literal["anthropic", "none"] = "anthropic"
-    anthropic_api_key: SecretStr | None = None
-    llm_model: str = "claude-opus-5-5"
-    llm_effort: Literal["low", "medium", "high"] = "low"
+    llm_provider: Literal["groq", "xai", "anthropic", "none"] = "groq"
+    # Empty = the provider's default (see DEFAULT_MODELS).
+    llm_model: str = ""
+    # Model for the reply-wording step. Empty = same as llm_model. Using a
+    # different model doubles throughput on per-model rate limits (Groq).
+    llm_compose_model: str = ""
+    # Sent as `reasoning_effort` to Groq/xAI when non-empty.
+    llm_reasoning_effort: str = "low"
     llm_timeout_seconds: float = 20.0
+
+    # Groq and xAI (Grok) - OpenAI-compatible chat completions APIs.
+    groq_api_key: SecretStr | None = None
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    xai_api_key: SecretStr | None = None
+    xai_base_url: str = "https://api.x.ai/v1"
+
+    # Anthropic (Claude).
+    anthropic_api_key: SecretStr | None = None
+    llm_effort: Literal["low", "medium", "high"] = "low"
     # Server-side refusal fallback (Anthropic API beta). Disable if your
     # deployment target does not support it.
     llm_refusal_fallback: bool = True
@@ -60,13 +77,23 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
-    def llm_enabled(self) -> bool:
-        return (
-            not self.assistant_demo_mode
-            and self.llm_provider != "none"
-            and self.anthropic_api_key is not None
-            and bool(self.anthropic_api_key.get_secret_value())
+    def llm_api_key(self) -> str:
+        key = {"groq": self.groq_api_key, "xai": self.xai_api_key, "anthropic": self.anthropic_api_key}.get(
+            self.llm_provider
         )
+        return key.get_secret_value().strip() if key is not None else ""
+
+    @property
+    def llm_model_name(self) -> str:
+        return self.llm_model.strip() or DEFAULT_MODELS.get(self.llm_provider, "")
+
+    @property
+    def llm_compose_model_name(self) -> str:
+        return self.llm_compose_model.strip() or self.llm_model_name
+
+    @property
+    def llm_enabled(self) -> bool:
+        return not self.assistant_demo_mode and self.llm_provider != "none" and bool(self.llm_api_key)
 
 
 @lru_cache

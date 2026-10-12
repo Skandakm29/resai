@@ -39,6 +39,7 @@ def health(db: Session = Depends(get_db), settings: Settings = Depends(get_setti
         "status": "ok" if db_ok else "degraded",
         "database": "ok" if db_ok else "unavailable",
         "assistant_mode": "llm" if settings.llm_enabled else "rules",
+        "llm": f"{settings.llm_provider}:{settings.llm_model_name}" if settings.llm_enabled else None,
     }
 
 

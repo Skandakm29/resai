@@ -45,7 +45,7 @@ from app.schemas.assistant import (
 )
 from app.services import menu_service
 from app.services.intent_rules import parse_message
-from app.services.matching import normalize, resolve_names
+from app.services.matching import find_mentions, normalize, resolve_names
 from app.services.search import ScoredItem, describe_filters, matches, quantity_for, search
 
 logger = logging.getLogger(__name__)
@@ -179,7 +179,7 @@ class AssistantService:
         ]
 
         # ---- persist ----
-        if result.intent in NON_SEARCH_INTENTS:
+        if result.intent in NON_SEARCH_INTENTS or result.clarification is not None:
             new_filters = previous or SearchFilters()
         else:
             new_filters = result.filters
@@ -280,7 +280,7 @@ class AssistantService:
                     system=PARSE_SYSTEM,
                     user=json.dumps(payload, ensure_ascii=False),
                     schema=PARSE_SCHEMA,
-                    max_tokens=2000,
+                    max_tokens=1200,
                 )
                 parsed = validate_parse_output(data)
                 return parsed, "llm"
@@ -333,7 +333,8 @@ class AssistantService:
             system=COMPOSE_SYSTEM,
             user=json.dumps(payload, ensure_ascii=False, default=str),
             schema=COMPOSE_SCHEMA,
-            max_tokens=2000,
+            max_tokens=1200,
+            model=self.settings.llm_compose_model_name,
         )
         return validate_compose_output(
             data,
@@ -354,6 +355,11 @@ class AssistantService:
         message: str,
     ) -> TurnResult:
         mentioned = resolve_names(parsed.mentioned_items, items)
+        # Dish names literally present in the message are matched
+        # deterministically too, in case the LLM left them out.
+        for it in find_mentions(message, items)[0]:
+            if it not in mentioned:
+                mentioned.append(it)
         f = parsed.filters
         intent = parsed.intent
         if intent in ("recommend", "cheapest"):

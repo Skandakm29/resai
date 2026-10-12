@@ -1,8 +1,8 @@
 # Render Blueprint: Postgres + FastAPI backend + Next.js frontend.
 # Render dashboard -> New -> Blueprint -> pick this repo.
 #
-# Demo mode: no LLM key needed. To enable Claude later, set
-# ASSISTANT_DEMO_MODE=false and add ANTHROPIC_API_KEY on resai-coffee-api
+# AI: Groq (groq.com). Render asks for GROQ_API_KEY when the Blueprint is
+# created; leave it blank to run in deterministic demo mode until you add one
 # in the dashboard (never commit the key).
 
 databases:
@@ -34,7 +34,18 @@ services:
           name: resai-coffee-db
           property: connectionString
       - key: ASSISTANT_DEMO_MODE
-        value: "true"
+        value: "false"
+      - key: LLM_PROVIDER
+        value: groq
+      # Two different models = two separate Groq per-model rate limits.
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: LLM_COMPOSE_MODEL
+        value: qwen/qwen3.8-27b
+      - key: LLM_REASONING_EFFORT
+        value: low
+      - key: GROQ_API_KEY
+        sync: false
       - key: RATE_LIMIT_ENABLED
         value: "true"
       # Render's proxy sits in front of the service, so the client IP is

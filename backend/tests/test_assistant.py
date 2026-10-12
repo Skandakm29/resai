@@ -164,3 +164,19 @@ def test_conversation_is_persisted(client, db):
 def test_blank_message_rejected(client):
     r = client.post("/api/restaurants/fernwood/assistant/chat", json={"message": "   "})
     assert r.status_code == 422
+
+
+def test_negated_budget_is_a_ceiling(client):
+    resp = chat(client, "fancy an iced coffee, nothing over 250 bucks")
+    assert "Up to ₹250" in resp["filter_summary"]
+    assert all(Decimal(r["item"]["price_from"]) <= 250 for r in resp["recommendations"])
+
+
+def test_follow_up_question_about_shown_item(client):
+    first = chat(client, "Something cold and not too sweet")
+    resp = chat(client, "is that vegan", first["conversation_id"])
+    assert resp["intent"] == "item_info"
+    assert resp["recommendations"][0]["item"]["name"] == first["recommendations"][0]["item"]["name"]
+    # The question does not change the active search.
+    again = chat(client, "and hot", first["conversation_id"])
+    assert again["applied_filters"]["max_sweetness"] == 2

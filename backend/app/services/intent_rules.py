@@ -58,16 +58,21 @@ def extract_prices(raw: str) -> dict:
     if rng:
         out["min_price"], out["max_price"] = _amount(rng.group(1)), _amount(rng.group(2))
         return out
-    m = re.search(
-        rf"(?:under|below|less than|lesser than|within|up ?to|upto|max(?:imum)?|at most|no more than|not more than|"
+    ceiling = re.search(
+        rf"(?:(?:nothing|not|no|never|don['’ ]?t want to spend|don['’ ]?t spend|won['’ ]?t spend|can['’ ]?t spend)\s+"
+        rf"(?:anything\s+)?(?:over|above|more than|beyond|exceeding)|"
+        rf"under|below|less than|lesser than|within|up ?to|upto|max(?:imum)?|at most|no more than|not more than|"
         rf"cheaper than|budget(?: of| is)?|<=?)\s*(?:rs\.?\s*)?{num}",
         text,
     ) or re.search(rf"{num}\s*(?:rs\.?|/-)?\s*(?:or less|or under|max|budget)\b", text)
-    if m:
-        out["max_price"] = _amount(m.group(1))
-    m = re.search(rf"(?:over|above|more than|at least|minimum|min)\s*(?:rs\.?\s*)?{num}", text)
-    if m:
-        out["min_price"] = _amount(m.group(1))
+    if ceiling:
+        out["max_price"] = _amount(ceiling.group(1))
+    for floor in re.finditer(rf"\b(?:over|above|more than|at least|minimum|min)\s*(?:rs\.?\s*)?{num}", text):
+        # Skip "over" inside a ceiling phrase such as "nothing over 250".
+        if ceiling and ceiling.start() <= floor.start() < ceiling.end():
+            continue
+        out["min_price"] = _amount(floor.group(1))
+        break
     if "max_price" not in out and "min_price" not in out:
         m = re.search(rf"\brs\.?\s*{num}", text) or re.search(rf"{num}\s*rs\b", text)
         if m:
@@ -260,6 +265,14 @@ def parse_message(
     elif mentions and (_info_topic(full) is not None) and not _has(full, r"\brecommend", r"\bsuggest"):
         intent = "item_info"
         info_topic = _info_topic(full)
+    elif (
+        previous is not None
+        and _has(full, r"^(?:is|does|do|has|can|what s in|whats in|what is in|how much is|how strong is)\s+(?:it|that|this|the first one|the top one)\b")
+        and _info_topic(full) is not None
+    ):
+        intent = "item_info"
+        info_topic = _info_topic(full)
+        refers_prev = True
     elif cheapest:
         intent = "cheapest"
         limit = 3
