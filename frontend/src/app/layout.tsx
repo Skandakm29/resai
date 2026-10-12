@@ -9,7 +9,7 @@ const sans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Coffee Guide", template: "%s" },
+  title: { default: "Café Guide", template: "%s" },
   description: "Discover drinks and food with an AI menu assistant, then build your order.",
 };
 

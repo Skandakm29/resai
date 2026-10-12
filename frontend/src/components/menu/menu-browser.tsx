@@ -93,7 +93,7 @@ export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
       >
         <Sparkles className="h-5 w-5 shrink-0" />
         <span className="text-sm">
-          <span className="font-semibold">Not sure what to get?</span> Ask the Coffee Guide for a recommendation within your budget.
+          <span className="font-semibold">Not sure what to get?</span> Ask the assistant for a recommendation within your budget.
         </span>
       </Link>
 

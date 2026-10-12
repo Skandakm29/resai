@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ItemBadges } from "@/components/menu/item-badges";
 import { ItemImage } from "@/components/menu/item-image";
-import { needsChoice, useItemDialog } from "@/components/menu/item-dialog";
+import { needsChoice, useItemDialog, variantLabel } from "@/components/menu/item-dialog";
 import { formatINR } from "@/lib/money";
 import type { Recommendation } from "@/lib/types";
 
@@ -51,7 +51,7 @@ export function RecommendationCard({ rec }: { rec: Recommendation }) {
         )}
         {(hasVariants || availableAddons > 0) && (
           <p className="text-xs text-muted-foreground">
-            {hasVariants && `Sizes: ${item.variants.map((v) => v.name).join(", ")}`}
+            {hasVariants && `${variantLabel(item) === "Size" ? "Sizes" : "Options"}: ${item.variants.map((v) => v.name).join(", ")}`}
             {hasVariants && availableAddons > 0 && " · "}
             {availableAddons > 0 && `${availableAddons} add-on${availableAddons === 1 ? "" : "s"} available`}
           </p>

@@ -86,3 +86,14 @@ describe("Cart", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Some items need your attention");
   });
 });
+
+describe("variantLabel", () => {
+  it("says Size only for real sizes", async () => {
+    const { variantLabel } = await import("@/components/menu/item-dialog");
+    const v = (name: string) => ({ id: name, name, price: "1.00", is_default: false, is_available: true });
+    expect(variantLabel({ variants: [v("Regular"), v("Large")] })).toBe("Size");
+    expect(variantLabel({ variants: [v("8 inch"), v("12 inch")] })).toBe("Size");
+    expect(variantLabel({ variants: [v("Penne"), v("Fusilli")] })).toBe("Option");
+    expect(variantLabel({ variants: [v("Hot"), v("Iced")] })).toBe("Option");
+  });
+});

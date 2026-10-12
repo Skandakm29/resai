@@ -26,6 +26,13 @@ export function useItemDialog() {
   return ctx;
 }
 
+const SIZE_WORDS = /^(regular|small|medium|large|single|double|half|full|\d+\s*(inch|in|"|ml|oz))$/i;
+
+/** "Size" when every variant is a size (Regular/Large, 8 inch...), else a neutral "Option". */
+export function variantLabel(item: Pick<MenuItem, "variants">) {
+  return item.variants.length > 0 && item.variants.every((v) => SIZE_WORDS.test(v.name.trim())) ? "Size" : "Option";
+}
+
 export function needsChoice(item: MenuItem) {
   return item.variant_required || item.variants.filter((v) => v.is_available).length > 1;
 }
@@ -126,9 +133,9 @@ function ItemDetails({ item, onDone }: { item: MenuItem; onDone: () => void }) {
           {hasVariants && (
             <fieldset className="space-y-2">
               <legend className="mb-2 text-sm font-semibold">
-                Size {item.variant_required && <span className="font-normal text-muted-foreground">· required</span>}
+                {variantLabel(item)} {item.variant_required && <span className="font-normal text-muted-foreground">· required</span>}
               </legend>
-              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Size">
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={variantLabel(item)}>
                 {item.variants.map((v) => (
                   <button
                     key={v.id}
@@ -231,7 +238,7 @@ function ItemDetails({ item, onDone }: { item: MenuItem; onDone: () => void }) {
           {!item.is_available
             ? "Currently unavailable"
             : missingVariant
-              ? "Choose a size"
+              ? `Choose ${variantLabel(item) === "Size" ? "a size" : "an option"}`
               : `Add to cart · ${formatINR(fromPaise(totalPaise))}`}
         </Button>
       </div>

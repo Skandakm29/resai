@@ -23,7 +23,8 @@ from app.models import (
     Restaurant,
     RestaurantSettings,
 )
-from app.seed.data import RESTAURANTS
+from app.seed.data import RESTAURANTS as DEMO_RESTAURANTS
+from app.seed.meloghrano import MELOGHRANO
 from app.services import menu_service
 
 
@@ -80,6 +81,9 @@ def seed_restaurant(db: Session, spec: dict) -> Restaurant:
         )
     )
     return restaurant
+
+
+RESTAURANTS = [*DEMO_RESTAURANTS, MELOGHRANO]
 
 
 def seed(db: Session, *, reset: bool = False) -> list[str]:

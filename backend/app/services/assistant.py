@@ -148,6 +148,8 @@ class AssistantService:
         last_ids = [uuid.UUID(i) for i in state.get("last_item_ids", [])]
 
         items = menu_service.load_items(self.db, restaurant)
+        # Only suggest dietary follow-ups the menu can actually answer.
+        self._has_verified_vegan = any(i.is_vegan for i in items if menu_service.is_orderable(i))
         by_id = {i.id: i for i in items}
         last_items = [by_id[i] for i in last_ids if i in by_id]
         cart_items = [by_id[c.item_id] for c in req.cart if c.item_id in by_id]
@@ -493,7 +495,7 @@ class AssistantService:
         if len(recs) >= 2:
             out.append(f"Compare the {_short(recs[0].item.name)} and {_short(recs[1].item.name)}")
         out.append(f"What pairs well with the {_short(recs[0].item.name)}?")
-        if not f.dietary:
+        if not f.dietary and getattr(self, "_has_verified_vegan", True):
             out.append("Only vegan options")
         return out
 
@@ -651,7 +653,7 @@ class AssistantService:
             follow_ups=(
                 [f"Compare the {_short(recs[0].item.name)} and {_short(recs[1].item.name)}"] if len(recs) > 1 else []
             )
-            + ["Something cold instead?" if "beverage" in types else "Show me vegan options"],
+            + ["Something cold instead?" if "beverage" in types else "Show me desserts"],
             filters=pf,
         )
 
@@ -760,7 +762,7 @@ class AssistantService:
             intent="item_info",
             message=" ".join(sentences),
             recs=recs,
-            follow_ups=[f"What pairs well with the {_short(it.name)}?", "Show me vegan options", "Recommend a coffee under ₹250"],
+            follow_ups=[f"What pairs well with the {_short(it.name)}?", "Recommend a coffee under ₹250", "Show me desserts"],
             filters=f,
         )
 

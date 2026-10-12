@@ -6,9 +6,17 @@ reasons, refine over multiple turns ("something cold"), compare items, ask
 about dietary/allergen information, and build a cart that the backend
 re-validates.
 
-The demo restaurant, **Fernwood Coffee Roasters**, is fictional. It's seeded
-with 40 items covering hot and cold coffee, tea and coolers, desserts, food,
-variants, add-ons, unavailable items, and verified and unknown attributes.
+The default demo café is **Meloghrano Cafe** (Basavanagudi, Bengaluru): 210
+items transcribed from the café's public menu on Zomato (October 2026), in
+`backend/app/seed/meloghrano.py`. This is an unofficial demo, not affiliated
+with the café. Prices may have changed, and dietary/allergen information is
+**not verified**, so the assistant says so. Only items the menu itself shows
+contain egg are marked non-vegetarian. Strength and sweetness are coarse
+estimates from the drink type, used for ranking.
+
+**Fernwood Coffee Roasters** (`/r/fernwood`) is a fictional café with fully
+specified test data (verified and unknown attributes, unavailable items),
+used by the automated tests.
 
 ```
 frontend/   Next.js 14 (App Router) + TypeScript + Tailwind + shadcn-style UI + Lucide
@@ -62,7 +70,7 @@ cd frontend
 npm install
 cp .env.example .env.local
 npm run dev
-#   App: http://localhost:3000  (redirects to /r/fernwood)
+#   App: http://localhost:3000  (redirects to /r/meloghrano)
 ```
 
 ### Demo mode vs LLM mode
