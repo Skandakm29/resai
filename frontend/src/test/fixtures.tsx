@@ -74,6 +74,8 @@ export const restaurant: Restaurant = {
     pickup_enabled: true,
     ordering_enabled: false,
     allergen_disclaimer: "",
+    brand_color: null,
+    assistant_icon: "coffee",
   },
 };
 

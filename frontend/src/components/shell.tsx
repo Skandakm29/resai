@@ -11,6 +11,7 @@ import { AssistantProvider } from "@/components/assistant/assistant-context";
 import { CartPanel } from "@/components/cart/cart-panel";
 import { CartProvider, useCart } from "@/components/cart/cart-context";
 import { ItemDialogProvider } from "@/components/menu/item-dialog";
+import { brandCss } from "@/lib/brand";
 import { formatINR, fromPaise } from "@/lib/money";
 import type { Restaurant } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -142,6 +143,8 @@ function ShellInner({ restaurant, children }: { restaurant: Restaurant; children
 export function RestaurantShell({ restaurant, children }: { restaurant: Restaurant; children: React.ReactNode }) {
   return (
     <CartProvider slug={restaurant.slug}>
+      {/* Per-restaurant brand colour; applies to dialogs rendered in portals too. */}
+      {restaurant.settings.brand_color && <style>{brandCss(restaurant.settings.brand_color)}</style>}
       <AssistantProvider slug={restaurant.slug}>
         <ItemDialogProvider>
           <ShellInner restaurant={restaurant}>{children}</ShellInner>

@@ -85,6 +85,9 @@ class RestaurantSettings(TimestampMixin, Base):
     # False until a real ordering/payment backend is integrated.
     ordering_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     allergen_disclaimer: Mapped[str] = mapped_column(Text)
+    # Branding for the customer page. brand_color is a #rrggbb hex; None = default theme.
+    brand_color: Mapped[str | None] = mapped_column(String(7))
+    assistant_icon: Mapped[str] = mapped_column(String(32), default="coffee", server_default="coffee")
 
     restaurant: Mapped[Restaurant] = relationship(back_populates="settings")
 

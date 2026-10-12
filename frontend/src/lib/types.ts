@@ -84,6 +84,8 @@ export interface Restaurant {
     pickup_enabled: boolean;
     ordering_enabled: boolean;
     allergen_disclaimer: string;
+    brand_color: string | null;
+    assistant_icon: string;
   };
 }
 

@@ -19,3 +19,14 @@ describe("money", () => {
     expect(() => toPaise("abc")).toThrow();
   });
 });
+
+describe("brand", () => {
+  it("converts brand hex to the HSL triplet used by the theme", async () => {
+    const { brandCss, hexToHslTriplet, assistantIcon } = await import("./brand");
+    expect(hexToHslTriplet("#8E2433")).toBe("352 60% 35%");
+    expect(hexToHslTriplet("not-a-colour")).toBeNull();
+    expect(brandCss(null)).toBe("");
+    expect(brandCss("#8E2433")).toContain("--primary:352 60% 35%");
+    expect(assistantIcon("utensils")).not.toBe(assistantIcon("coffee"));
+  });
+});

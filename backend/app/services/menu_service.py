@@ -201,6 +201,8 @@ def serialize_restaurant(restaurant: Restaurant) -> RestaurantOut:
             pickup_enabled=s.pickup_enabled if s else True,
             ordering_enabled=s.ordering_enabled if s else False,
             allergen_disclaimer=s.allergen_disclaimer if s else "",
+            brand_color=s.brand_color if s else None,
+            assistant_icon=(s.assistant_icon or "coffee") if s else "coffee",
         ),
     )
 

@@ -92,6 +92,8 @@ class RestaurantSettingsOut(BaseModel):
     pickup_enabled: bool
     ordering_enabled: bool
     allergen_disclaimer: str
+    brand_color: str | None = None
+    assistant_icon: str = "coffee"
 
 
 class RestaurantOut(BaseModel):

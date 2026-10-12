@@ -1,17 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUp, Coffee, RefreshCw, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { ArrowUp, RefreshCw, RotateCcw, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RecommendationCard } from "@/components/assistant/recommendation-card";
 import { useAssistant, type ChatMessage } from "@/components/assistant/assistant-context";
+import { assistantIcon } from "@/lib/brand";
 import type { ChatResponse, Restaurant } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+// The restaurant's assistant icon (coffee cup, cutlery...), set once by <Chat>.
+const IconContext = React.createContext<LucideIcon>(assistantIcon("coffee"));
+
 function AssistantAvatar({ className }: { className?: string }) {
+  const Icon = React.useContext(IconContext);
   return (
     <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground", className)}>
-      <Coffee className="h-4 w-4" />
+      <Icon className="h-4 w-4" />
     </div>
   );
 }
@@ -144,10 +149,11 @@ function AssistantMessage({
 }
 
 function Welcome({ restaurant, onPick, disabled }: { restaurant: Restaurant; onPick: (p: string) => void; disabled: boolean }) {
+  const WelcomeIcon = React.useContext(IconContext);
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center gap-5 py-6 text-center sm:py-12">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-        <Coffee className="h-7 w-7" />
+        <WelcomeIcon className="h-7 w-7" />
       </div>
       <div className="space-y-2">
         <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">{restaurant.settings.assistant_name}</h1>
@@ -187,6 +193,7 @@ export function Chat({ restaurant }: { restaurant: Restaurant }) {
   const lastAssistantIndex = messages.map((m) => m.role).lastIndexOf("assistant");
 
   return (
+    <IconContext.Provider value={assistantIcon(restaurant.settings.assistant_icon)}>
     <section className="flex h-full min-h-0 flex-col" aria-label={restaurant.settings.assistant_name}>
       {messages.length > 0 && (
         <div className="flex items-center justify-between border-b px-4 py-2.5">
@@ -271,5 +278,6 @@ export function Chat({ restaurant }: { restaurant: Restaurant }) {
         </p>
       </form>
     </section>
+    </IconContext.Provider>
   );
 }

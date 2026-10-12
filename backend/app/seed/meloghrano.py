@@ -399,19 +399,21 @@ MELOGHRANO = {
         currency="INR",
     ),
     "settings": dict(
-        assistant_name="Your Café Guide",
+        assistant_name="Meloghrano Guide",
         welcome_message=(
-            "Hi! What are you in the mood for today? I can help you find coffees, pastas, sourdough bakes "
-            "and desserts - and options within your budget. (Unofficial demo built from Meloghrano's public "
-            "menu; prices may have changed, so please confirm at the café.)"
+            "Ciao! Craving wood-fired sourdough pizza, a creamy pasta or something sweet? Tell me your mood "
+            "and budget and I'll find it on the menu. (Unofficial demo built from Meloghrano's public menu; "
+            "prices may have changed, so please confirm at the café.)"
         ),
         suggested_prompts=[
-            "Recommend a coffee under ₹250",
-            "Something cold and not too sweet",
-            "What pairs well with a cappuccino?",
-            "Show me pasta options",
-            "Find something for two under ₹800",
+            "Suggest a pizza for two",
+            "Show me pasta under ₹450",
+            "Something cheesy to share",
+            "What dessert goes with a cappuccino?",
+            "A cold drink that isn't coffee",
         ],
+        brand_color="#8E2433",
+        assistant_icon="utensils",
         ai_enabled=True,
         pickup_enabled=True,
         ordering_enabled=False,

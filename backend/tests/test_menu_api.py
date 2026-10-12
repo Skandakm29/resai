@@ -86,3 +86,25 @@ def test_price_from_uses_cheapest_available_variant(client, db):
     db.flush()
     body = client.get(f"/api/restaurants/fernwood/menu/items/{cap.id}").json()
     assert Decimal(body["price_from"]) == Decimal("250.00")
+
+
+def test_restaurant_branding(client):
+    melo = client.get("/api/restaurants/meloghrano").json()["settings"]
+    assert melo["brand_color"] == "#8E2433" and melo["assistant_icon"] == "utensils"
+    fern = client.get("/api/restaurants/fernwood").json()["settings"]
+    assert fern["brand_color"] is None and fern["assistant_icon"] == "coffee"
+
+
+def test_seed_refreshes_settings_without_touching_menu(db):
+    from app.models import Restaurant
+    from app.seed.seed import seed
+
+    melo = db.scalar(select(Restaurant).where(Restaurant.slug == "meloghrano"))
+    melo.settings.brand_color = "#000000"
+    items_before = db.scalar(select(__import__("sqlalchemy").func.count(MenuItem.id)).where(MenuItem.restaurant_id == melo.id))
+    db.flush()
+    seed(db)
+    db.refresh(melo.settings)
+    assert melo.settings.brand_color == "#8E2433"
+    items_after = db.scalar(select(__import__("sqlalchemy").func.count(MenuItem.id)).where(MenuItem.restaurant_id == melo.id))
+    assert items_after == items_before

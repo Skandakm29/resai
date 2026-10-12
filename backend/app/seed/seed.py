@@ -93,6 +93,12 @@ def seed(db: Session, *, reset: bool = False) -> list[str]:
         existing = db.scalar(select(Restaurant).where(Restaurant.slug == slug))
         if existing is not None:
             if not reset:
+                # Keep the menu and conversations; refresh profile + branding.
+                for key, value in spec["restaurant"].items():
+                    setattr(existing, key, value)
+                if existing.settings is not None:
+                    for key, value in spec["settings"].items():
+                        setattr(existing.settings, key, value)
                 continue
             db.delete(existing)
             db.flush()
@@ -108,7 +114,7 @@ def main() -> None:
     args = parser.parse_args()
     with SessionLocal() as db:
         created = seed(db, reset=args.reset)
-    print(f"Seeded: {', '.join(created) if created else 'nothing (already present; use --reset)'}")
+    print(f"Seeded: {', '.join(created) or 'none new'}; refreshed settings for existing restaurants")
 
 
 if __name__ == "__main__":
