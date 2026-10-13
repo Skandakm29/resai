@@ -2,7 +2,9 @@
 
 Pipeline for each customer message:
 1. Load the conversation's structured state (active filters, last shown items).
-2. Parse intent + filters (LLM if configured and valid, else rules).
+2. Screen the message (guardrails): off-topic tasks are refused and injection
+   attempts are kept away from the LLM. Then parse intent + filters (LLM if
+   configured, allowed and valid, else rules).
 3. Execute the intent with deterministic menu functions.
 4. Build a factual reply. Optionally let the LLM reword it; its output is
    validated (item IDs, prices, prohibited claims) or discarded.
@@ -46,7 +48,7 @@ from app.schemas.assistant import (
     Recommendation,
     SearchFilters,
 )
-from app.services import menu_service
+from app.services import guardrails, menu_service
 from app.services.intent_rules import parse_message
 from app.services.matching import find_mentions, normalize, resolve_names
 from app.services.planner import build_plan, describe_plan, portions
@@ -159,11 +161,24 @@ class AssistantService:
         last_items = [by_id[i] for i in last_ids if i in by_id]
         cart_items = [by_id[c.item_id] for c in req.cart if c.item_id in by_id]
 
-        parsed, source = self._parse(req, conversation, items, previous, last_items, state.get("last_intent"))
+        strikes = int(state.get("strikes", 0))
+        verdict = guardrails.screen(req.message, items)
+        if verdict == "off_topic":
+            parsed, source = ParsedQuery(intent="off_topic", filters=previous or SearchFilters()), "rules"
+        else:
+            # Injection attempts and repeat offenders get the rule parser only.
+            use_llm = verdict == "ok" and strikes < guardrails.MAX_STRIKES
+            parsed, source = self._parse(
+                req, conversation, items, previous, last_items, state.get("last_intent"), use_llm=use_llm
+            )
+        if verdict != "ok" or parsed.intent == "off_topic":
+            strikes += 1
+            logger.info("Guardrail: %s message in conversation %s (strike %d)", verdict, conversation.id, strikes)
         result = self._execute(restaurant, parsed, items, previous, last_items, cart_items, req.message)
 
         notes: dict[str, str] = {}
-        if source == "llm" and self.provider is not None:
+        # Off-topic replies keep their fixed wording; the LLM never words them.
+        if source == "llm" and self.provider is not None and result.intent != "off_topic":
             try:
                 composed = self._compose(req.message, result)
                 result.message = composed.message
@@ -199,6 +214,7 @@ class AssistantService:
             "filters": new_filters.model_dump(mode="json"),
             "last_item_ids": shown_ids[:6],
             "last_intent": result.intent,
+            "strikes": strikes,
         }
         self.db.add(
             ConversationMessage(
@@ -274,8 +290,10 @@ class AssistantService:
         previous: SearchFilters | None,
         last_items: list[MenuItem],
         previous_intent: str | None = None,
+        *,
+        use_llm: bool = True,
     ) -> tuple[ParsedQuery, str]:
-        if self.provider is not None:
+        if self.provider is not None and use_llm:
             try:
                 payload = {
                     "menu": {

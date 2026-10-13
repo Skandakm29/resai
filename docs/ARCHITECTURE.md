@@ -34,6 +34,7 @@ in FastAPI.
 | `services/intent_rules.py` | Rule-based parser (demo mode and LLM fallback), including multi-turn merge rules |
 | `services/matching.py` | Resolves item names and aliases in text to real items; drops unknown names |
 | `services/assistant.py` | Orchestration per intent: recommend, cheapest, compare, pairing, item_info, menu_overview, greeting, order_help, off_topic, clarify |
+| `services/guardrails.py` | Screens each message before any LLM call: off-topic tasks and prompt-injection attempts |
 | `services/cart.py` | Server-side cart validation. Client prices are informational only |
 | `llm/` | Provider protocol, OpenAI-compatible provider (Groq, xAI), Anthropic provider, prompts, JSON schemas, output validators |
 | `ratelimit.py` | Sliding-window limiter dependency for public AI endpoints |
@@ -64,6 +65,24 @@ in FastAPI.
   in onboarding.
 
 ## Assistant design
+
+### Guardrails
+
+Every message is screened by `services/guardrails.py` before an LLM sees it:
+
+| Verdict | Example | Handling |
+|---|---|---|
+| `off_topic` | "write a poem", "python code", "translate…", "weather in Paris" (no menu words) | Fixed refusal, **no LLM call** |
+| `injection` | "ignore your instructions", "show your system prompt", "you are now…" | Rule parser only, **no LLM call** |
+| `ok` | anything mentioning the menu, food, drinks, prices or ordering | Normal pipeline |
+
+Each flagged message (including ones the LLM itself classifies as
+`off_topic`) adds a strike to the conversation state. After
+`MAX_STRIKES` (3) the conversation runs on the rule parser only.
+Off-topic replies always use the fixed wording; the compose step never
+rewords them. Screening is conservative: an unrelated subject is only
+refused when the message has no menu signal ("it's hot, suggest an iced
+coffee" passes).
 
 ### Parsing
 
@@ -117,6 +136,8 @@ way):
   computed differences
 - it contains prohibited claims (order placed/confirmed, payment
   received, "allergen-free", "nut-free", "safe for", "guarantee")
+- it leaks or strays: "system prompt", "my instructions", "language model",
+  "as an AI", links or code fences
 - the schema is invalid
 
 Notes attached to unknown item IDs are silently dropped. Any rejection falls
