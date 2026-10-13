@@ -17,7 +17,30 @@ function baseUrl(): string {
   return "";
 }
 
+const WAKE_STATUSES = new Set([0, 502, 503, 504]);
+
+/**
+ * Server-side GETs retry while the backend is unreachable or returns a
+ * gateway error - on free hosting the API sleeps when idle and takes up to
+ * about a minute to wake. Other requests fail fast (the chat has a Retry).
+ */
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const isServerGet = typeof window === "undefined" && (!init?.method || init.method === "GET");
+  if (!isServerGet) return requestOnce<T>(path, init);
+  const deadline = Date.now() + 75_000;
+  let delay = 1000;
+  for (;;) {
+    try {
+      return await requestOnce<T>(path, { ...init, timeoutMs: Math.max(5000, deadline - Date.now()) });
+    } catch (e) {
+      if (!(e instanceof ApiError) || !WAKE_STATUSES.has(e.status) || Date.now() + delay > deadline) throw e;
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 5000);
+    }
+  }
+}
+
+async function requestOnce<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const controller = new AbortController();
   // Server-side calls get longer: a sleeping free-tier backend can take ~a minute to wake.
   const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? (typeof window === "undefined" ? 70000 : 30000));
