@@ -388,6 +388,42 @@ CATEGORIES = [
     ]),
 ]
 
+# The printed menu splits coffee into many sections (classic hot, flavoured
+# lattes, Rockline specials, iced, cold brews, sparkling, probiotic, manual
+# brews). The app groups them into Hot Coffee and Cold Coffee so the category
+# bar stays short; every item keeps its own attributes. Non-coffee seasonal
+# drinks move to their natural sections.
+COFFEE_SECTIONS = {
+    "classic-hot-coffees", "signature-lattes", "rockline-specials", "classic-iced-coffees", "cold-brews",
+    "sparkling-coffee", "manual-brews", "frappes", "seasonal-specials",
+}
+
+
+def _group_coffee(categories):
+    hot, cold, rest = [], [], []
+    by_slug = {c["slug"]: c for c in categories}
+    for cat in categories:
+        if cat["slug"] not in COFFEE_SECTIONS:
+            rest.append(cat)
+            continue
+        for it in cat["items"]:
+            if not it["contains_coffee"]:
+                by_slug["shakes-smoothies" if "shake" in it["tags"] else "mocktails"]["items"].append(it)
+            elif it["temperature"] == "cold":
+                cold.append(it)
+            else:  # hot, or served either way (Rockline lattes, V60 / Aeropress)
+                hot.append(it)
+    return [
+        dict(name="Hot Coffee", slug="hot-coffee", items=hot,
+             description="Espresso classics, flavoured and signature lattes, and hand brews (V60 and Aeropress can be iced)."),
+        dict(name="Cold Coffee", slug="cold-coffee", items=cold,
+             description="Iced coffees, cold brews, sparkling and probiotic coffees, and frappes."),
+        *rest,
+    ]
+
+
+CATEGORIES = _group_coffee(CATEGORIES)
+
 MELOGHRANO = {
     "restaurant": dict(
         slug="meloghrano",

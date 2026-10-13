@@ -1,6 +1,6 @@
 """Seed the database with demo restaurants.
 
-    python -m app.seed.seed            # insert if missing
+    python -m app.seed.seed            # insert if missing; rebuild a demo menu whose items changed
     python -m app.seed.seed --reset    # delete demo restaurants first, then insert
 """
 
@@ -86,13 +86,29 @@ def seed_restaurant(db: Session, spec: dict) -> Restaurant:
 RESTAURANTS = [*DEMO_RESTAURANTS, MELOGHRANO]
 
 
+def _menu_signature(categories) -> list[tuple[str, tuple[str, ...]]]:
+    return [(c["slug"], tuple(i["name"] for i in c["items"])) for c in categories]
+
+
+def _menu_changed(db: Session, restaurant: Restaurant, spec: dict) -> bool:
+    """True when the stored demo menu's sections or items differ from the spec."""
+    stored = []
+    for cat in db.scalars(
+        select(MenuCategory).where(MenuCategory.restaurant_id == restaurant.id).order_by(MenuCategory.sort_order)
+    ):
+        names = db.scalars(select(MenuItem.name).where(MenuItem.category_id == cat.id).order_by(MenuItem.sort_order))
+        stored.append((cat.slug, tuple(names)))
+    return stored != _menu_signature(spec["categories"])
+
+
 def seed(db: Session, *, reset: bool = False) -> list[str]:
     created = []
     for spec in RESTAURANTS:
         slug = spec["restaurant"]["slug"]
         existing = db.scalar(select(Restaurant).where(Restaurant.slug == slug))
         if existing is not None:
-            if not reset:
+            # A changed demo menu is rebuilt (its demo conversations go with it).
+            if not reset and not _menu_changed(db, existing, spec):
                 # Keep the menu and conversations; refresh profile + branding.
                 for key, value in spec["restaurant"].items():
                     setattr(existing, key, value)
@@ -114,7 +130,7 @@ def main() -> None:
     args = parser.parse_args()
     with SessionLocal() as db:
         created = seed(db, reset=args.reset)
-    print(f"Seeded: {', '.join(created) or 'none new'}; refreshed settings for existing restaurants")
+    print(f"Seeded: {', '.join(created) or 'none new'}; refreshed settings for the rest")
 
 
 if __name__ == "__main__":

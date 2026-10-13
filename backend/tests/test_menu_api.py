@@ -108,3 +108,19 @@ def test_seed_refreshes_settings_without_touching_menu(db):
     assert melo.settings.brand_color == "#8E2433"
     items_after = db.scalar(select(__import__("sqlalchemy").func.count(MenuItem.id)).where(MenuItem.restaurant_id == melo.id))
     assert items_after == items_before
+
+
+def test_meloghrano_coffee_is_grouped_into_hot_and_cold(client):
+    menu = client.get("/api/restaurants/meloghrano/menu").json()
+    coffee_sections = [c["name"] for c in menu["categories"] if "coffee" in c["name"].lower()]
+    assert coffee_sections == ["Hot Coffee", "Cold Coffee"]
+    assert len(menu["categories"]) == 14
+    hot, cold = menu["categories"][0], menu["categories"][1]
+    assert all(i["contains_coffee"] and i["temperature"] != "cold" for i in hot["items"])
+    assert all(i["contains_coffee"] and i["temperature"] == "cold" for i in cold["items"])
+
+
+def test_reseeding_an_unchanged_menu_is_a_no_op(db):
+    from app.seed.seed import seed
+
+    assert seed(db) == []
