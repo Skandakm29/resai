@@ -174,6 +174,11 @@ class AssistantService:
             )
         # Strikes come from the guardrails or the LLM - never from the rule
         # parser merely not understanding a message.
+        if source == "llm" and parsed.intent == "recommend" and parsed.filters.is_empty() and previous is None:
+            # The LLM saw nothing to filter on; if the rules do ("mocktail"), use theirs.
+            rules = parse_message(req.message, items)
+            if rules.intent == "recommend" and not rules.filters.is_empty():
+                parsed = rules
         if verdict != "ok" or (source == "llm" and parsed.intent == "off_topic"):
             strikes += 1
             logger.info("Guardrail: %s message in conversation %s (strike %d)", verdict, conversation.id, strikes)

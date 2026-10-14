@@ -184,3 +184,11 @@ def test_llm_nulls_for_defaulted_filters_are_accepted():
 
     parsed = validate_parse_output({**COFFEE_250, "filters": _filters(caffeine_free=None, party_size=None)})
     assert parsed.filters.caffeine_free is False and parsed.filters.party_size == 1
+
+
+def test_empty_llm_filters_fall_back_to_rule_filters(client, use_provider):
+    empty = {**COFFEE_250, "filters": _filters()}
+    use_provider(FakeProvider(parse=empty, compose=LLMError("deterministic")))
+    resp = chat(client, "Your most theatrical mocktail", slug="moai")
+    assert resp["recommendations"]
+    assert all("Mocktail" in r["item"]["category_name"] for r in resp["recommendations"])
