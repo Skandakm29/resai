@@ -43,10 +43,15 @@ function Header({ restaurant, onOpenCart }: { restaurant: Restaurant; onOpenCart
     <header className={cn("border-b", dark ? "border-ink bg-ink text-ink-foreground" : "bg-background/95 backdrop-blur")}>
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4">
         {theme?.wordmark ? (
-          <Link href={base} className="flex min-w-0 flex-1 items-baseline gap-3" aria-label={`${restaurant.name} home`}>
-            <span className="font-display text-[2rem] leading-none tracking-tight">{theme.wordmark}</span>
+          <Link href={base} className={cn("flex min-w-0 flex-1 gap-3", theme.logo ? "items-center" : "items-baseline")} aria-label={`${restaurant.name} home`}>
+            {theme.logo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={theme.logo} alt={restaurant.name} className="h-9 w-auto shrink-0 sm:h-10" />
+            ) : (
+              <span className="font-display text-[2rem] leading-none tracking-tight">{theme.wordmark}</span>
+            )}
             <span className="min-w-0 truncate text-[11px] uppercase tracking-[0.18em] text-ink-foreground/65">
-              <span className="hidden sm:inline">{restaurant.tagline && `${restaurant.tagline} · `}</span>
+              {!theme.logo && <span className="hidden sm:inline">{restaurant.tagline && `${restaurant.tagline} · `}</span>}
               {place}
             </span>
           </Link>

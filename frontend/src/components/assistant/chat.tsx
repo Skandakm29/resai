@@ -167,7 +167,8 @@ function Welcome({
   disabled: boolean;
 }) {
   const WelcomeIcon = React.useContext(IconContext);
-  const dark = Boolean(themeFor(restaurant.slug)?.darkHeader);
+  const theme = themeFor(restaurant.slug);
+  const dark = Boolean(theme?.darkHeader);
   return (
     <div className="mx-auto max-w-3xl space-y-6 py-2 sm:py-6">
       <div
@@ -179,6 +180,7 @@ function Welcome({
         {/* Soft glow in the restaurant's accent colour. */}
         <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-[hsl(var(--glow)/0.35)] blur-3xl" />
         <div className="relative space-y-3">
+          {!theme?.eyebrow && (
           <div
             className={cn(
               "flex h-11 w-11 items-center justify-center rounded-2xl shadow-sm",
@@ -187,7 +189,20 @@ function Welcome({
           >
             <WelcomeIcon className="h-5 w-5" />
           </div>
+          )}
+          {theme?.eyebrow && (
+            <p className={cn("font-display text-xs uppercase tracking-[0.25em]", dark ? "text-ink-foreground/75" : "text-muted-foreground")}>
+              {theme.eyebrow}
+            </p>
+          )}
           <h1 className="font-display text-4xl leading-[1.05] tracking-tight sm:text-5xl">{restaurant.settings.assistant_name}</h1>
+          {theme?.motto && (
+            <p className="flex items-center gap-3 text-sm font-medium">
+              <span aria-hidden className="h-px w-8 bg-current opacity-50" />
+              {theme.motto}
+              <span aria-hidden className="h-px w-8 bg-current opacity-50" />
+            </p>
+          )}
           <p className={cn("max-w-xl text-balance text-[15px] leading-relaxed", dark ? "text-ink-foreground/75" : "text-muted-foreground")}>
             {restaurant.settings.welcome_message}
           </p>
@@ -318,7 +333,13 @@ export function Chat({ restaurant, featured = [] }: { restaurant: Restaurant; fe
             placeholder="Ask for a recommendation…"
             className="max-h-32 min-h-[2.5rem] flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-muted-foreground"
           />
-          <Button type="submit" size="icon" aria-label="Send message" disabled={pending || !draft.trim()}>
+          <Button
+            type="submit"
+            size="icon"
+            aria-label="Send message"
+            disabled={pending || !draft.trim()}
+            className="bg-highlight text-highlight-foreground hover:bg-highlight/90"
+          >
             <ArrowUp />
           </Button>
         </div>

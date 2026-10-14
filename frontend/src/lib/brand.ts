@@ -41,39 +41,53 @@ export function hexToHslTriplet(hex: string): string | null {
  */
 export type Theme = {
   vars: Record<string, string>;
-  /** Dark "printed menu" header and welcome hero. */
+  /** Dark brand-coloured header and welcome hero. */
   darkHeader?: boolean;
   wordmark?: string;
+  /** Logo image for the dark header (replaces the wordmark). */
+  logo?: string;
+  /** Small uppercase line above the welcome title, and a motto under it. */
+  eyebrow?: string;
+  motto?: string;
 };
 
 const THEMES: Record<string, Theme> = {
-  // Moai: deep forest green (#223929) on warm cream (#FFF6EB), from its printed menu.
+  // Moai: matches moaiveg.com - #004F00 green, white and beige, peach accent,
+  // Playfair Display headings over Inter.
   moai: {
     darkHeader: true,
     wordmark: "moai",
+    logo: "/r/moai/logo.png",
+    eyebrow: "Pure veg fine dining in Bangalore",
+    motto: "Mingle Over Artisanal Infusions",
     vars: {
-      "--background": "34 100% 96%",
-      "--foreground": "140 25% 12%",
-      "--card": "36 100% 99%",
-      "--card-foreground": "140 25% 12%",
-      "--popover": "36 100% 99%",
-      "--popover-foreground": "140 25% 12%",
-      "--primary": "138 25% 22%",
-      "--primary-foreground": "36 100% 97%",
-      "--secondary": "100 18% 88%",
-      "--secondary-foreground": "140 25% 16%",
-      "--accent": "34 70% 91%",
-      "--accent-foreground": "140 25% 16%",
-      "--muted": "60 20% 91%",
-      "--muted-foreground": "140 8% 34%",
-      "--border": "60 14% 83%",
-      "--input": "60 14% 78%",
-      "--ring": "138 25% 30%",
-      "--coffee": "140 25% 18%",
-      "--coffee-light": "100 18% 80%",
-      "--ink": "138 25% 18%",
-      "--ink-foreground": "34 100% 95%",
-      "--glow": "100 35% 55%",
+      "--background": "40 15% 97%",
+      "--foreground": "140 20% 15%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "140 20% 15%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "140 20% 15%",
+      "--primary": "140 60% 20%",
+      "--primary-foreground": "0 0% 98%",
+      "--secondary": "31 98% 92%",
+      "--secondary-foreground": "25 30% 28%",
+      "--accent": "31 98% 92%",
+      "--accent-foreground": "25 30% 28%",
+      "--muted": "40 15% 94%",
+      "--muted-foreground": "140 15% 38%",
+      "--border": "140 15% 88%",
+      "--input": "140 15% 84%",
+      "--ring": "140 60% 20%",
+      "--coffee": "25 30% 40%",
+      "--coffee-light": "30 25% 65%",
+      "--ink": "120 100% 15.5%",
+      "--ink-foreground": "0 0% 98%",
+      "--glow": "140 50% 40%",
+      "--highlight": "31 98% 83%",
+      "--highlight-foreground": "120 100% 12%",
+      "--brand-display": "var(--font-playfair)",
+      "--brand-sans": "var(--font-inter)",
+      "--display-weight": "700",
     },
   },
 };

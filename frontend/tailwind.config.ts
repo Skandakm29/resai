@@ -21,6 +21,7 @@ const config: Config = {
         popover: { DEFAULT: "hsl(var(--popover))", foreground: "hsl(var(--popover-foreground))" },
         coffee: { DEFAULT: "hsl(var(--coffee))", light: "hsl(var(--coffee-light))" },
         ink: { DEFAULT: "hsl(var(--ink))", foreground: "hsl(var(--ink-foreground))" },
+        highlight: { DEFAULT: "hsl(var(--highlight))", foreground: "hsl(var(--highlight-foreground))" },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -28,8 +29,8 @@ const config: Config = {
         sm: "calc(var(--radius) - 8px)",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "ui-serif", "Georgia", "Cambria", "Times New Roman", "serif"],
+        sans: ["var(--brand-sans, var(--font-sans))", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--brand-display, var(--font-display))", "ui-serif", "Georgia", "Cambria", "Times New Roman", "serif"],
       },
       keyframes: {
         "dot-bounce": {

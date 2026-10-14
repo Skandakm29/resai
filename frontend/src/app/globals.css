@@ -29,6 +29,9 @@
     --ink: 150 18% 12%;
     --ink-foreground: 40 40% 97%;
     --glow: 36 60% 55%;
+    /* Call-to-action highlight (defaults to the primary colour). */
+    --highlight: var(--primary);
+    --highlight-foreground: var(--primary-foreground);
     --radius: 1rem;
   }
 
@@ -39,8 +42,14 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "ss01", "cv11";
-    /* The display serif has one weight; never fake a bold. */
+    /* Never fake a bold or italic the font doesn't have. */
     font-synthesis: none;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-weight: var(--display-weight, 400);
   }
 }
 

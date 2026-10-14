@@ -28,7 +28,7 @@ function MenuRow({ item }: { item: MenuItem }) {
       </button>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex items-start justify-between gap-2">
-          <button type="button" onClick={() => dialog.open(item)} className="text-left font-semibold leading-snug hover:underline">
+          <button type="button" onClick={() => dialog.open(item)} className="text-left font-display text-[17px] leading-snug hover:underline">
             {item.name}
           </button>
           <span className="shrink-0 text-sm font-semibold text-primary">

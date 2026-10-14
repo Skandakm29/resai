@@ -30,7 +30,7 @@ export function RecommendationCard({ rec }: { rec: Recommendation }) {
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="font-semibold leading-snug">{item.name}</h3>
+          <h3 className="font-display text-[17px] leading-snug">{item.name}</h3>
           <p className="shrink-0 font-semibold text-primary" data-testid="rec-price">
             {hasVariants && <span className="text-xs font-normal text-muted-foreground">from </span>}
             {formatINR(item.price_from)}

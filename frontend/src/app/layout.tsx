@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Serif_Display } from "next/font/google";
+import { DM_Serif_Display, Inter, Playfair_Display } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -10,6 +10,9 @@ const sans = localFont({
 });
 
 const display = DM_Serif_Display({ subsets: ["latin"], weight: "400", variable: "--font-display", display: "swap" });
+// Brand fonts a restaurant theme can opt into (see lib/brand.ts).
+const playfair = Playfair_Display({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-playfair", display: "swap" });
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
   title: { default: "Café Guide", template: "%s" },
@@ -24,8 +27,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-IN">
-      <body className={`${sans.variable} ${display.variable} font-sans`}>{children}</body>
+    <html lang="en-IN" className={`${sans.variable} ${display.variable} ${playfair.variable} ${inter.variable}`}>
+      <body className="font-sans">{children}</body>
     </html>
   );
 }
