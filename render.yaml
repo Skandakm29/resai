@@ -73,4 +73,4 @@ services:
       - key: BACKEND_URL
         value: https://resai-coffee-api.onrender.com
       - key: DEFAULT_RESTAURANT_SLUG
-        value: meloghrano
+        value: moai

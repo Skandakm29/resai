@@ -20,6 +20,7 @@ const config: Config = {
         card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
         popover: { DEFAULT: "hsl(var(--popover))", foreground: "hsl(var(--popover-foreground))" },
         coffee: { DEFAULT: "hsl(var(--coffee))", light: "hsl(var(--coffee-light))" },
+        ink: { DEFAULT: "hsl(var(--ink))", foreground: "hsl(var(--ink-foreground))" },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -28,7 +29,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        display: ["ui-serif", "Georgia", "Cambria", "Times New Roman", "serif"],
+        display: ["var(--font-display)", "ui-serif", "Georgia", "Cambria", "Times New Roman", "serif"],
       },
       keyframes: {
         "dot-bounce": {

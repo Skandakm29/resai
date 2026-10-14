@@ -6,7 +6,9 @@ reasons, refine over multiple turns ("something cold"), compare items, ask
 about dietary/allergen information, and build a cart that the backend
 re-validates.
 
-The default demo café is **Meloghrano Cafe** (Basavanagudi, Bengaluru): 210
+The default restaurant is **Moai** (`/r/moai`, Redefined Vegetarian Dining): its drinks menu and smoothie bowls, transcribed from the printed menu in `backend/app/seed/moai.py`, with the menu's own photography for the signature items and a theme matching the printed menu (`frontend/src/lib/brand.ts`). Vegan and allergen details are not verified.
+
+**Meloghrano Cafe** (`/r/meloghrano`) is a second demo café (Basavanagudi, Bengaluru): 210
 items transcribed from the café's public menu on Zomato (October 2026), in
 `backend/app/seed/meloghrano.py`. This is an unofficial demo, not affiliated
 with the café. Prices may have changed, and dietary/allergen information is

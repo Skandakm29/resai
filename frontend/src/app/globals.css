@@ -25,6 +25,9 @@
     --ring: 153 40% 30%;
     --coffee: 24 38% 28%;
     --coffee-light: 30 40% 80%;
+    /* Dark surface for hero panels and themed headers. */
+    --ink: 150 18% 12%;
+    --ink-foreground: 40 40% 97%;
     --radius: 1rem;
   }
 
@@ -35,6 +38,8 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "ss01", "cv11";
+    /* The display serif has one weight; never fake a bold. */
+    font-synthesis: none;
   }
 }
 
@@ -44,6 +49,24 @@
   }
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+}
+
+@layer components {
+  /* Messages and cards rise in as they arrive. */
+  .rise-in {
+    animation: rise-in 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

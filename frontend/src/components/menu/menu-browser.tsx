@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { ItemBadges } from "@/components/menu/item-badges";
 import { ItemImage } from "@/components/menu/item-image";
 import { needsChoice, useItemDialog } from "@/components/menu/item-dialog";
+import { SignatureStrip } from "@/components/menu/signature-strip";
+import { signatures } from "@/lib/menu";
+import { themeFor } from "@/lib/brand";
 import { formatINR } from "@/lib/money";
 import type { Menu, MenuItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -59,6 +62,9 @@ function MenuRow({ item }: { item: MenuItem }) {
 
 export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
   const [active, setActive] = React.useState(menu.categories[0]?.slug);
+  const dialog = useItemDialog();
+  const featured = React.useMemo(() => signatures(menu.categories.flatMap((c) => c.items)), [menu]);
+  const dark = Boolean(themeFor(slug)?.darkHeader);
 
   function jump(catSlug: string) {
     setActive(catSlug);
@@ -89,18 +95,31 @@ export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
 
       <Link
         href={`/r/${slug}`}
-        className="mb-6 mt-2 flex items-center gap-3 rounded-3xl bg-primary px-5 py-4 text-primary-foreground transition-opacity hover:opacity-95"
+        className={cn(
+          "mb-6 mt-2 flex items-center gap-3 rounded-3xl px-5 py-4 transition-opacity hover:opacity-95",
+          dark ? "bg-ink text-ink-foreground" : "bg-primary text-primary-foreground",
+        )}
       >
-        <Sparkles className="h-5 w-5 shrink-0" />
+        <Sparkles className={cn("h-5 w-5 shrink-0", dark && "text-primary")} />
         <span className="text-sm">
           <span className="font-semibold">Not sure what to get?</span> Ask the assistant for a recommendation within your budget.
         </span>
       </Link>
 
+      {featured.length > 0 && (
+        <section className="mb-10" aria-labelledby="h-signatures">
+          <h2 id="h-signatures" className="font-display text-3xl">
+            Signatures
+          </h2>
+          <p className="mb-4 mt-1 text-sm text-muted-foreground">House favourites - tap one for details.</p>
+          <SignatureStrip items={featured} onPick={(item) => dialog.open(item)} />
+        </section>
+      )}
+
       <div className="space-y-10">
         {menu.categories.map((c) => (
           <section key={c.id} id={`cat-${c.slug}`} className="scroll-mt-16" aria-labelledby={`h-${c.slug}`}>
-            <h2 id={`h-${c.slug}`} className="font-display text-2xl font-semibold">
+            <h2 id={`h-${c.slug}`} className="font-display text-3xl">
               {c.name}
             </h2>
             {c.description && <p className="mb-4 mt-1 text-sm text-muted-foreground">{c.description}</p>}

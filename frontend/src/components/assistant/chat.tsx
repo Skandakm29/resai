@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { PlanCard } from "@/components/assistant/plan-card";
 import { RecommendationCard } from "@/components/assistant/recommendation-card";
 import { useAssistant, type ChatMessage } from "@/components/assistant/assistant-context";
-import { assistantIcon } from "@/lib/brand";
-import type { ChatResponse, Restaurant } from "@/lib/types";
+import { SignatureStrip } from "@/components/menu/signature-strip";
+import { assistantIcon, themeFor } from "@/lib/brand";
+import type { ChatResponse, MenuItem, Restaurant } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // The restaurant's assistant icon (coffee cup, cutlery...), set once by <Chat>.
@@ -42,7 +43,7 @@ export function PromptChips({ prompts, onPick, disabled }: { prompts: string[]; 
 
 function TypingIndicator() {
   return (
-    <div className="flex items-end gap-2" role="status" aria-label="Assistant is typing">
+    <div className="rise-in flex items-end gap-2" role="status" aria-label="Assistant is typing">
       <AssistantAvatar />
       <div className="flex gap-1 rounded-3xl rounded-bl-md border bg-card px-4 py-3.5 shadow-sm">
         {[0, 1, 2].map((i) => (
@@ -107,7 +108,7 @@ function AssistantMessage({
   const r = message.response;
   const chips = r.clarification?.options?.length ? r.clarification.options : r.follow_ups;
   return (
-    <div className="space-y-3" data-testid="assistant-message">
+    <div className="rise-in space-y-3" data-testid="assistant-message">
       <div className="flex items-end gap-2">
         <AssistantAvatar />
         <div className="max-w-[85%] space-y-2 rounded-3xl rounded-bl-md border bg-card px-4 py-3 shadow-sm">
@@ -154,32 +155,69 @@ function AssistantMessage({
   );
 }
 
-function Welcome({ restaurant, onPick, disabled }: { restaurant: Restaurant; onPick: (p: string) => void; disabled: boolean }) {
+function Welcome({
+  restaurant,
+  featured,
+  onPick,
+  disabled,
+}: {
+  restaurant: Restaurant;
+  featured: MenuItem[];
+  onPick: (p: string) => void;
+  disabled: boolean;
+}) {
   const WelcomeIcon = React.useContext(IconContext);
+  const dark = Boolean(themeFor(restaurant.slug)?.darkHeader);
   return (
-    <div className="mx-auto flex max-w-xl flex-col items-center gap-5 py-6 text-center sm:py-12">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-        <WelcomeIcon className="h-7 w-7" />
+    <div className="mx-auto max-w-3xl space-y-6 py-2 sm:py-6">
+      <div
+        className={cn(
+          "rise-in relative overflow-hidden rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10",
+          dark ? "bg-ink text-ink-foreground" : "border bg-card",
+        )}
+      >
+        {/* Soft caramel glow, echoing the printed menu's colour panels. */}
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-primary/30 blur-3xl" />
+        <div className="relative space-y-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
+            <WelcomeIcon className="h-5 w-5" />
+          </div>
+          <h1 className="font-display text-4xl leading-[1.05] tracking-tight sm:text-5xl">{restaurant.settings.assistant_name}</h1>
+          <p className={cn("max-w-xl text-balance text-[15px] leading-relaxed", dark ? "text-ink-foreground/75" : "text-muted-foreground")}>
+            {restaurant.settings.welcome_message}
+          </p>
+        </div>
+        {featured.length > 0 && (
+          <div className="relative mt-7 space-y-3">
+            <p className={cn("text-xs font-medium uppercase tracking-[0.18em]", dark ? "text-ink-foreground/60" : "text-muted-foreground")}>
+              Signatures
+            </p>
+            <SignatureStrip
+              items={featured}
+              tone={dark ? "dark" : "light"}
+              onPick={(item) => !disabled && onPick(`Tell me about the ${item.name}`)}
+              className="-mx-6 px-6 sm:-mx-10 sm:px-10"
+            />
+          </div>
+        )}
       </div>
-      <div className="space-y-2">
-        <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">{restaurant.settings.assistant_name}</h1>
-        <p className="text-balance text-muted-foreground">{restaurant.settings.welcome_message}</p>
-      </div>
-      <div className="w-full space-y-2 text-left">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Try asking</p>
+      <div className="rise-in space-y-2" style={{ animationDelay: "120ms" }}>
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Try asking</p>
         <PromptChips prompts={restaurant.settings.suggested_prompts} onPick={onPick} disabled={disabled} />
       </div>
     </div>
   );
 }
 
-export function Chat({ restaurant }: { restaurant: Restaurant }) {
+export function Chat({ restaurant, featured = [] }: { restaurant: Restaurant; featured?: MenuItem[] }) {
   const { messages, pending, send, retry, reset } = useAssistant();
   const [draft, setDraft] = React.useState("");
   const endRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
   React.useEffect(() => {
+    // Leave the welcome screen at the top; follow the conversation once it starts.
+    if (messages.length === 0) return;
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, pending]);
 
@@ -206,7 +244,7 @@ export function Chat({ restaurant }: { restaurant: Restaurant }) {
           <div className="flex items-center gap-2">
             <AssistantAvatar className="h-7 w-7" />
             <div>
-              <h1 className="text-sm font-semibold leading-tight">{restaurant.settings.assistant_name}</h1>
+              <h1 className="font-display text-base leading-tight">{restaurant.settings.assistant_name}</h1>
               <p className="text-xs text-muted-foreground">Answers come from the live menu</p>
             </div>
           </div>
@@ -218,13 +256,13 @@ export function Chat({ restaurant }: { restaurant: Restaurant }) {
 
       <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite" aria-busy={pending}>
         {messages.length === 0 ? (
-          <Welcome restaurant={restaurant} onPick={submit} disabled={pending} />
+          <Welcome restaurant={restaurant} featured={featured} onPick={submit} disabled={pending} />
         ) : (
           <div className="mx-auto max-w-3xl space-y-5">
             {messages.map((m, i) => {
               if (m.role === "user") {
                 return (
-                  <div key={m.id} className="flex justify-end">
+                  <div key={m.id} className="rise-in flex justify-end">
                     <p className="max-w-[80%] whitespace-pre-line rounded-3xl rounded-br-md bg-primary px-4 py-2.5 text-[15px] text-primary-foreground">
                       {m.content}
                     </p>
