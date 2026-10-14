@@ -177,3 +177,10 @@ def test_new_word_outranks_carried_over_type_filters(client, use_provider):
     assert names and all("Croissant" in n for n in names)
     assert resp["applied_filters"]["contains_coffee"] is None  # set aside, budget kept
     assert resp["applied_filters"]["max_price"] == "250.00"
+
+
+def test_llm_nulls_for_defaulted_filters_are_accepted():
+    from app.llm.prompts import validate_parse_output
+
+    parsed = validate_parse_output({**COFFEE_250, "filters": _filters(caffeine_free=None, party_size=None)})
+    assert parsed.filters.caffeine_free is False and parsed.filters.party_size == 1

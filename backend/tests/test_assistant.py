@@ -202,3 +202,21 @@ def test_misspelled_dish_words_are_understood(client):
     # Ordinary words are never "corrected" into menu words.
     resp = chat(client, "Recommend a coffee", slug="meloghrano")
     assert all(r["item"]["contains_coffee"] for r in resp["recommendations"])
+
+
+def test_moai_vague_request_shows_house_favourites(client):
+    resp = chat(client, "what is good here?", slug="moai")
+    assert resp["recommendations"]
+    assert all(r["item"]["is_featured"] for r in resp["recommendations"])
+    assert resp["recommendations"][0]["item"]["image_url"]
+
+
+def test_moai_follow_ups_use_its_own_prompts(client):
+    resp = chat(client, "show me the menu", slug="moai")
+    assert "Show me desserts" not in resp["follow_ups"]
+    assert resp["follow_ups"][0] == "Your most theatrical mocktail"
+
+
+def test_multi_keyword_match_ranks_first(client):
+    resp = chat(client, "Something fizzy and spicy", slug="moai")
+    assert resp["recommendations"][0]["item"]["name"] == "Mango Chilli"

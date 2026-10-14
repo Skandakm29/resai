@@ -15,7 +15,7 @@ def item(
     name, price, *, desc, type, temp=None, coffee=None, caffeine=None, strength=None, sweet=None,
     veg=None, vegan=None, ingredients=None, ing_status="unknown", allergens=None, all_status="unknown",
     tags=(), flavors=(), pairs=(), keywords=(), variants=(), variant_required=False, addons=(),
-    featured=False, available=True, serves=1,
+    featured=False, available=True, serves=1, image=None,
 ):
     return dict(
         name=name, price=D(price), description=desc, item_type=type, temperature=temp, contains_coffee=coffee,
@@ -27,7 +27,7 @@ def item(
             dict(name=v[0], price=D(v[1]), is_default=v[2], is_available=v[3] if len(v) > 3 else True) for v in variants
         ],
         variant_required=variant_required, addons=list(addons), is_featured=featured, is_available=available,
-        serves=serves,
+        serves=serves, image_url=image,
     )
 
 

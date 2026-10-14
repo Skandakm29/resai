@@ -201,8 +201,15 @@ def _score(item: MenuItem, f: SearchFilters) -> float:
     if f.keywords:
         name_hits, other_hits = keyword_hits(item, f.keywords)
         score += 3 * name_hits + other_hits
+        # Matching more of what was asked ("fizzy" and "spicy") beats one word in the name.
+        if len(f.keywords) > 1:
+            score += 3 * max(other_hits - 1, 0)
     if item.is_featured:
         score += 1.0
+    if item.image_url:
+        score += 0.3  # signature dishes the restaurant photographs
+    if "packaged" in (item.tags or []) and not (f.keywords and sum(keyword_hits(item, f.keywords))):
+        score -= 2.0  # soft drinks / water: only lead when asked for
     if f.party_size > 1 and item.serves >= f.party_size:
         score += 1.5
     if f.max_sweetness is not None and item.sweetness is not None:

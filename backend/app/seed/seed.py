@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 
 from sqlalchemy import select
@@ -25,6 +27,7 @@ from app.models import (
 )
 from app.seed.data import RESTAURANTS as DEMO_RESTAURANTS
 from app.seed.meloghrano import MELOGHRANO
+from app.seed.moai import MOAI
 from app.services import menu_service
 
 
@@ -77,28 +80,27 @@ def seed_restaurant(db: Session, spec: dict) -> Restaurant:
     db.add(
         MenuVersion(
             restaurant_id=restaurant.id, menu_id=menu.id, version_number=1, status="published", source="seed",
-            snapshot=snapshot, notes="Initial demo menu", published_at=utcnow(),
+            snapshot=snapshot, notes=f"Initial demo menu (seed {menu_digest(spec)})", published_at=utcnow(),
         )
     )
     return restaurant
 
 
-RESTAURANTS = [*DEMO_RESTAURANTS, MELOGHRANO]
+RESTAURANTS = [*DEMO_RESTAURANTS, MELOGHRANO, MOAI]
 
 
-def _menu_signature(categories) -> list[tuple[str, tuple[str, ...]]]:
-    return [(c["slug"], tuple(i["name"] for i in c["items"])) for c in categories]
+def menu_digest(spec: dict) -> str:
+    """Fingerprint of a demo menu's full data (items, prices, tags, options, add-ons)."""
+    data = json.dumps([spec["addons"], spec["categories"]], sort_keys=True, default=str)
+    return hashlib.sha256(data.encode()).hexdigest()[:16]
 
 
 def _menu_changed(db: Session, restaurant: Restaurant, spec: dict) -> bool:
-    """True when the stored demo menu's sections or items differ from the spec."""
-    stored = []
-    for cat in db.scalars(
-        select(MenuCategory).where(MenuCategory.restaurant_id == restaurant.id).order_by(MenuCategory.sort_order)
-    ):
-        names = db.scalars(select(MenuItem.name).where(MenuItem.category_id == cat.id).order_by(MenuItem.sort_order))
-        stored.append((cat.slug, tuple(names)))
-    return stored != _menu_signature(spec["categories"])
+    """True when the stored demo menu was seeded from different data."""
+    notes = db.scalars(
+        select(MenuVersion.notes).where(MenuVersion.restaurant_id == restaurant.id, MenuVersion.source == "seed")
+    ).all()
+    return not any(f"seed {menu_digest(spec)}" in (n or "") for n in notes)
 
 
 def seed(db: Session, *, reset: bool = False) -> list[str]:

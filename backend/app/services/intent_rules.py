@@ -446,7 +446,8 @@ def parse_message(
 
     if intent == "recommend" and filters.is_empty() and not mentions and previous is None and not refers_prev:
         # Nothing we could act on.
-        if not _has(full, r"recommend", r"suggest", r"surprise", r"popular", r"best", r"favou?rite", r"something", r"anything", r"what should", r"what do you"):
+        if not _has(full, r"recommend", r"suggest", r"surprise", r"popular", r"best", r"favou?rite", r"something", r"anything", r"what should", r"what do you",
+                    r"\bgood\b", r"\bspecial", r"signature", r"famous", r"must ?try", r"\btry\b", r"\bnice\b", r"\bgreat\b", r"\btasty\b", r"\bdelicious\b"):
             intent = "off_topic" if len(full.split()) > 2 else "clarify"
 
     return ParsedQuery(

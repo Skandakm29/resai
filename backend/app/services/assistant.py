@@ -155,6 +155,7 @@ class AssistantService:
         last_ids = [uuid.UUID(i) for i in state.get("last_item_ids", [])]
 
         items = menu_service.load_items(self.db, restaurant)
+        self._suggested = self._prompts(restaurant)
         # Only suggest dietary follow-ups the menu can actually answer.
         self._has_verified_vegan = any(i.is_vegan for i in items if menu_service.is_orderable(i))
         by_id = {i.id: i for i in items}
@@ -171,7 +172,9 @@ class AssistantService:
             parsed, source = self._parse(
                 req, conversation, items, previous, last_items, state.get("last_intent"), use_llm=use_llm
             )
-        if verdict != "ok" or parsed.intent == "off_topic":
+        # Strikes come from the guardrails or the LLM - never from the rule
+        # parser merely not understanding a message.
+        if verdict != "ok" or (source == "llm" and parsed.intent == "off_topic"):
             strikes += 1
             logger.info("Guardrail: %s message in conversation %s (strike %d)", verdict, conversation.id, strikes)
         result = self._execute(restaurant, parsed, items, previous, last_items, cart_items, req.message)
@@ -423,6 +426,10 @@ class AssistantService:
                 mentioned.append(it)
         f = parsed.filters
         intent = parsed.intent
+        if intent == "recommend" and f.is_empty() and not mentioned and previous is None:
+            # "What's good here?" / "surprise me": nothing to filter on yet.
+            if favourites := self._house_favourites(restaurant, items, "recommend"):
+                return favourites
         if intent in ("recommend", "cheapest"):
             return self._recommend(parsed, items, last_items)
         if intent == "meal_plan":
@@ -457,19 +464,47 @@ class AssistantService:
                 follow_ups=self._prompts(restaurant)[:3],
                 filters=previous or SearchFilters(),
             )
+        if previous is None and (favourites := self._house_favourites(restaurant, items, "clarify")):
+            return favourites
         return TurnResult(
             intent="clarify",
             message="Happy to help! Are you after a drink, something to eat, or a dessert? A budget helps too.",
             clarification=Clarification(
                 question="What would you like?",
-                options=["Recommend a coffee", "Show me desserts", "Something cold", "Find vegetarian food"],
+                options=self._more(4),
             ),
-            follow_ups=["Recommend a coffee", "Show me desserts", "Something cold"],
+            follow_ups=self._more(3),
             filters=previous or SearchFilters(),
         )
 
     def _prompts(self, restaurant: Restaurant) -> list[str]:
         return list(restaurant.settings.suggested_prompts) if restaurant.settings else []
+
+    def _house_favourites(self, restaurant: Restaurant, items: list[MenuItem], intent: Intent) -> TurnResult | None:
+        featured = [i for i in items if i.is_featured and menu_service.is_orderable(i)]
+        if not featured:
+            return None
+        # Photographed favourites first: they make the best first impression.
+        featured.sort(key=lambda i: i.image_url is None)
+        recs = [
+            ScoredItem(item=i, score=0, reasons=["House favourite"], unit_price=menu_service.price_from(i), quantity=1,
+                       total=menu_service.price_from(i))
+            for i in featured[:4]
+        ]
+        return TurnResult(
+            intent=intent,
+            message=(
+                f"Here are a few of {_possessive(restaurant.name)} favourites to start with. Or tell me what you're "
+                "in the mood for - and a budget, if you have one."
+            ),
+            recs=recs,
+            follow_ups=self._more(3),
+            filters=SearchFilters(),
+        )
+
+    def _more(self, n: int) -> list[str]:
+        """Generic next steps: this restaurant's own suggested prompts."""
+        return (getattr(self, "_suggested", None) or ["Recommend a drink", "Something cold", "Show me the menu"])[:n]
 
     # ----------------------------------------------------------- intents
 
@@ -769,7 +804,7 @@ class AssistantService:
             follow_ups=(
                 [f"Compare the {_short(recs[0].item.name)} and {_short(recs[1].item.name)}"] if len(recs) > 1 else []
             )
-            + ["Something cold instead?" if "beverage" in types else "Show me desserts"],
+            + (["Something cold instead?"] if "beverage" in types else self._more(1)),
             filters=pf,
         )
 
@@ -878,7 +913,7 @@ class AssistantService:
             intent="item_info",
             message=" ".join(sentences),
             recs=recs,
-            follow_ups=[f"What pairs well with the {_short(it.name)}?", "Recommend a coffee under ₹250", "Show me desserts"],
+            follow_ups=[f"What pairs well with the {_short(it.name)}?", *self._more(2)],
             filters=f,
         )
 
@@ -892,7 +927,8 @@ class AssistantService:
         for name, its in by_cat.items():
             prices = [menu_service.price_from(i) for i in its]
             amounts |= {min(prices), max(prices)}
-            parts.append(f"{name} ({format_inr(min(prices))}–{format_inr(max(prices))})")
+            lo, hi = min(prices), max(prices)
+            parts.append(f"{name} ({format_inr(lo)})" if lo == hi else f"{name} ({format_inr(lo)}–{format_inr(hi)})")
         featured = [i for i in items if i.is_featured and menu_service.is_orderable(i)][:4]
         recs = [
             ScoredItem(item=i, score=0, reasons=["House favourite"], unit_price=menu_service.price_from(i), quantity=1, total=menu_service.price_from(i))
@@ -902,7 +938,7 @@ class AssistantService:
             intent="menu_overview",
             message=f"Here's what we serve: {_join(parts)}. A few house favourites are below.",
             recs=recs,
-            follow_ups=["Recommend a coffee under ₹250", "Show me desserts", "Find vegetarian food"],
+            follow_ups=self._more(3),
             extra_amounts=amounts,
         )
 
