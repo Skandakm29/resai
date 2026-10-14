@@ -6,7 +6,7 @@ reasons, refine over multiple turns ("something cold"), compare items, ask
 about dietary/allergen information, and build a cart that the backend
 re-validates.
 
-The default restaurant is **Moai** (`/r/moai`, Redefined Vegetarian Dining): its drinks menu and smoothie bowls, transcribed from the printed menu in `backend/app/seed/moai.py`, with the menu's own photography for the signature items and a theme matching the printed menu (`frontend/src/lib/brand.ts`). Vegan and allergen details are not verified.
+The default restaurant is **Moai** (`/r/moai`), Redefined Vegetarian Dining in Jayanagar, Bengaluru: 205 items in 31 sections. The food comes from the restaurant's PDF menu (main, Jain and vegan pages) in `backend/app/seed/moai_food.py`. The drinks and smoothie bowls come from the printed drinks menu in `backend/app/seed/moai.py`. Signature dishes use the menu's own photography, and the green-and-cream theme matches the menu (`frontend/src/lib/brand.ts`). Vegan marks come from the menu's vegan page; allergens are not verified.
 
 **Meloghrano Cafe** (`/r/meloghrano`) is a second demo café (Basavanagudi, Bengaluru): 210
 items transcribed from the café's public menu on Zomato (October 2026), in

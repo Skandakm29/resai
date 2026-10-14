@@ -58,6 +58,9 @@ logger = logging.getLogger(__name__)
 
 # Intents whose filters describe a one-off question; they must not overwrite
 # the conversation's active search constraints.
+# Dishes eaten with bread (pairing suggests naan/roti/kulcha for them).
+GRAVY_TAGS = {"curry", "dal", "sabzi"}
+
 NON_SEARCH_INTENTS = {"item_info", "compare", "order_help", "off_topic", "clarify"}
 
 ALLERGEN_WORDS = {
@@ -756,7 +759,13 @@ class AssistantService:
                 filters=f,
             )
         types = [t for t in f.item_types]
-        if not types or types == [anchor.item_type]:
+        # Curries and dals are eaten with bread: suggest those, not a drink.
+        with_bread = not types and bool(set(anchor.tags or []) & GRAVY_TAGS) and any(
+            "bread" in (i.tags or []) and menu_service.is_orderable(i) for i in items
+        )
+        if with_bread:
+            types = ["food"]
+        elif not types or types == [anchor.item_type]:
             types = ["dessert", "food"] if anchor.item_type == "beverage" else ["beverage"]
         pf = SearchFilters(
             item_types=types,  # type: ignore[arg-type]
@@ -767,6 +776,7 @@ class AssistantService:
             party_size=f.party_size,
             contains_coffee=f.contains_coffee if types == ["beverage"] else None,
             temperature=f.temperature if types == ["beverage"] else None,
+            tags_any=["bread"] if with_bread else [],
         )
         anchor_pairs = set(anchor.pairs_with or [])
         anchor_flavors = set(anchor.flavor_tags or [])
@@ -794,7 +804,7 @@ class AssistantService:
         scored.sort(key=lambda t: (-t[0], t[1].total))
         recs = [s for score, s in scored if score > 0][: parsed.limit] or [s for _, s in scored][: min(3, parsed.limit)]
         type_word = {"dessert": "desserts", "food": "bites", "beverage": "drinks"}
-        wanted = _join([type_word[t] for t in types])
+        wanted = "breads" if with_bread else _join([type_word[t] for t in types])
         if recs:
             msg = f"Lovely choice. These {wanted} go well with the {anchor.name}"
             if pf.max_price is not None:

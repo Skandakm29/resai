@@ -28,6 +28,7 @@
     /* Dark surface for hero panels and themed headers. */
     --ink: 150 18% 12%;
     --ink-foreground: 40 40% 97%;
+    --glow: 36 60% 55%;
     --radius: 1rem;
   }
 

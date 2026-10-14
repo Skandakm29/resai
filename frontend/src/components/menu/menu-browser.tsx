@@ -61,9 +61,15 @@ function MenuRow({ item }: { item: MenuItem }) {
 }
 
 export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
-  const [active, setActive] = React.useState(menu.categories[0]?.slug);
+  // Big menus split into Food and Drinks so the section bar stays short.
+  const isDrinks = (c: Menu["categories"][number]) =>
+    c.items.length > 0 && c.items.filter((i) => i.item_type === "beverage").length * 2 > c.items.length;
+  const hasBoth = menu.categories.some(isDrinks) && menu.categories.some((c) => !isDrinks(c));
+  const [half, setHalf] = React.useState<"food" | "drinks">("food");
+  const categories = hasBoth ? menu.categories.filter((c) => isDrinks(c) === (half === "drinks")) : menu.categories;
+  const [active, setActive] = React.useState<string | undefined>(categories[0]?.slug);
   const dialog = useItemDialog();
-  const featured = React.useMemo(() => signatures(menu.categories.flatMap((c) => c.items)), [menu]);
+  const featured = signatures(categories.flatMap((c) => c.items));
   const dark = Boolean(themeFor(slug)?.darkHeader);
 
   function jump(catSlug: string) {
@@ -73,9 +79,32 @@ export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
 
   return (
     <div className="mx-auto max-w-4xl px-4 pb-16">
-      <div className="sticky top-0 z-10 -mx-4 bg-background/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-0 z-10 -mx-4 space-y-2.5 bg-background/95 px-4 py-3 backdrop-blur">
+        {hasBoth && (
+          <div className="flex w-full rounded-full bg-muted p-1 sm:w-72" role="group" aria-label="Food or drinks">
+            {(["food", "drinks"] as const).map((h) => (
+              <button
+                key={h}
+                type="button"
+                aria-pressed={half === h}
+                onClick={() => {
+                  setHalf(h);
+                  const first = menu.categories.find((c) => isDrinks(c) === (h === "drinks"));
+                  setActive(first?.slug);
+                  document.getElementById("menu-top")?.scrollIntoView({ block: "start" });
+                }}
+                className={cn(
+                  "flex-1 rounded-full py-1.5 text-sm font-medium capitalize transition-colors",
+                  half === h ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {h}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2 overflow-x-auto scrollbar-none" role="tablist" aria-label="Menu categories">
-          {menu.categories.map((c) => (
+          {categories.map((c) => (
             <button
               key={c.id}
               type="button"
@@ -93,6 +122,7 @@ export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
         </div>
       </div>
 
+      <div id="menu-top" className="scroll-mt-32" />
       <Link
         href={`/r/${slug}`}
         className={cn(
@@ -100,7 +130,7 @@ export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
           dark ? "bg-ink text-ink-foreground" : "bg-primary text-primary-foreground",
         )}
       >
-        <Sparkles className={cn("h-5 w-5 shrink-0", dark && "text-primary")} />
+        <Sparkles className={cn("h-5 w-5 shrink-0", dark && "text-[hsl(var(--glow))]")} />
         <span className="text-sm">
           <span className="font-semibold">Not sure what to get?</span> Ask the assistant for a recommendation within your budget.
         </span>
@@ -117,8 +147,8 @@ export function MenuBrowser({ menu, slug }: { menu: Menu; slug: string }) {
       )}
 
       <div className="space-y-10">
-        {menu.categories.map((c) => (
-          <section key={c.id} id={`cat-${c.slug}`} className="scroll-mt-16" aria-labelledby={`h-${c.slug}`}>
+        {categories.map((c) => (
+          <section key={c.id} id={`cat-${c.slug}`} className={hasBoth ? "scroll-mt-28" : "scroll-mt-16"} aria-labelledby={`h-${c.slug}`}>
             <h2 id={`h-${c.slug}`} className="font-display text-3xl">
               {c.name}
             </h2>

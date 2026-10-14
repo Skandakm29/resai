@@ -45,11 +45,10 @@ function Header({ restaurant, onOpenCart }: { restaurant: Restaurant; onOpenCart
         {theme?.wordmark ? (
           <Link href={base} className="flex min-w-0 flex-1 items-baseline gap-3" aria-label={`${restaurant.name} home`}>
             <span className="font-display text-[2rem] leading-none tracking-tight">{theme.wordmark}</span>
-            {restaurant.tagline && (
-              <span className="hidden truncate text-[11px] uppercase tracking-[0.18em] text-ink-foreground/65 sm:inline">
-                {restaurant.tagline}
-              </span>
-            )}
+            <span className="min-w-0 truncate text-[11px] uppercase tracking-[0.18em] text-ink-foreground/65">
+              <span className="hidden sm:inline">{restaurant.tagline && `${restaurant.tagline} · `}</span>
+              {place}
+            </span>
           </Link>
         ) : (
           <>

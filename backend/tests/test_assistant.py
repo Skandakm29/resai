@@ -214,9 +214,23 @@ def test_moai_vague_request_shows_house_favourites(client):
 def test_moai_follow_ups_use_its_own_prompts(client):
     resp = chat(client, "show me the menu", slug="moai")
     assert "Show me desserts" not in resp["follow_ups"]
-    assert resp["follow_ups"][0] == "Your most theatrical mocktail"
+    assert resp["follow_ups"][0] == "What are your Moai specials?"
 
 
 def test_multi_keyword_match_ranks_first(client):
     resp = chat(client, "Something fizzy and spicy", slug="moai")
     assert resp["recommendations"][0]["item"]["name"] == "Mango Chilli"
+
+
+def test_moai_curry_pairs_with_breads(client):
+    resp = chat(client, "what goes with paneer makhani", slug="moai")
+    assert resp["recommendations"]
+    assert all("Breads" in r["item"]["category_name"] for r in resp["recommendations"])
+
+
+def test_moai_vegan_and_jain_from_the_menu(client):
+    vegan = chat(client, "Vegan mains", slug="moai")
+    assert vegan["recommendations"] and all(r["item"]["dietary"]["vegan"] == "yes" for r in vegan["recommendations"])
+    jain = chat(client, "Jain options", slug="moai")
+    assert jain["recommendations"]
+    assert all("Jain" in r["item"]["name"] for r in jain["recommendations"])

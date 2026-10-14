@@ -176,10 +176,15 @@ function Welcome({
           dark ? "bg-ink text-ink-foreground" : "border bg-card",
         )}
       >
-        {/* Soft caramel glow, echoing the printed menu's colour panels. */}
-        <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-primary/30 blur-3xl" />
+        {/* Soft glow in the restaurant's accent colour. */}
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-[hsl(var(--glow)/0.35)] blur-3xl" />
         <div className="relative space-y-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
+          <div
+            className={cn(
+              "flex h-11 w-11 items-center justify-center rounded-2xl shadow-sm",
+              dark ? "bg-ink-foreground text-ink" : "bg-primary text-primary-foreground",
+            )}
+          >
             <WelcomeIcon className="h-5 w-5" />
           </div>
           <h1 className="font-display text-4xl leading-[1.05] tracking-tight sm:text-5xl">{restaurant.settings.assistant_name}</h1>

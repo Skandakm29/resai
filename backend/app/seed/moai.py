@@ -1,4 +1,6 @@
-"""Moai (Redefined Vegetarian Dining) - beverage menu and smoothie bowls.
+"""Moai (Redefined Vegetarian Dining, Jayanagar, Bengaluru) - drinks and smoothie bowls.
+
+The food menu is in moai_food.py; the restaurant's menu lists food first.
 
 Source: photographs of the restaurant's printed menu (October 2026). Names
 and prices are as printed; obvious spelling slips were normalised ("Lytchi"
@@ -18,6 +20,7 @@ Left out: "Vietnamese-Style Cold Coffee" - its price is cut off in the photo.
 from decimal import Decimal as D
 
 from app.seed.data import item
+from app.seed.moai_food import FOOD_CATEGORIES
 
 IMG = "/r/moai/{}.jpg"
 
@@ -51,7 +54,7 @@ def cat(name, slug, description, items):
     return dict(name=name, slug=slug, description=description, items=items)
 
 
-CATEGORIES = [
+DRINK_CATEGORIES = [
     cat("A Cup of Joy", "cup-of-joy", "Milk coffees, hot chocolate and affogato.", [
         M("Cappuccino", "220", "A timeless Italian classic with a Moai twist. Bold espresso meets silky steamed milk, topped "
           "with a cloud of micro foam. Balanced, rich and satisfying.",
@@ -201,12 +204,14 @@ CATEGORIES = [
     ]),
 ]
 
+CATEGORIES = [*FOOD_CATEGORIES, *DRINK_CATEGORIES]
+
 MOAI = {
     "restaurant": dict(
         slug="moai",
         name="Moai",
         tagline="Redefined · Vegetarian · Dining",
-        address_line=None,
+        address_line="Jayanagar",
         city="Bengaluru",
         phone=None,
         currency="INR",
@@ -214,18 +219,19 @@ MOAI = {
     "settings": dict(
         assistant_name="Moai Guide",
         welcome_message=(
-            "Welcome to Moai. Tell me your mood - something fizzy, a slow-brewed coffee, a smoothie bowl - and a "
-            "budget if you have one. I'll find it on the menu."
+            "Welcome to Moai - redefined vegetarian dining, with no MSG, soda or artificial colours. Tell me what "
+            "you're craving, who you're with and your budget, and I'll put together the perfect meal."
         ),
         suggested_prompts=[
+            "What are your Moai specials?",
+            "4 of us, starters and mains, budget ₹2500",
+            "A spicy paneer starter",
+            "Vegan mains",
+            "Jain options",
             "Your most theatrical mocktail",
-            "A strong coffee under ₹200",
-            "Something fizzy and spicy",
-            "A healthy smoothie bowl",
-            "Drinks for 4, budget ₹1200",
         ],
-        brand_color="#B06A2C",
-        assistant_icon="drink",
+        brand_color="#223929",
+        assistant_icon="utensils",
         ai_enabled=True,
         pickup_enabled=False,
         ordering_enabled=False,
