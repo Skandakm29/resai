@@ -165,10 +165,20 @@ class _FastTime:
         return None
 
 
-def test_suspicious_prices_are_flagged():
-    items = [{"category": "Mains", "name": f"Dish {i}", "price": p} for i, p in enumerate(["369", "379", "1439", "349"])]
+def test_misread_rupee_prices_are_fixed_or_flagged():
+    prices = ["369", "379", "1379", "349", "5200"]
+    items = [{"category": "Mains", "name": f"Dish {i}", "price": p} for i, p in enumerate(prices)]
     draft = draft_from_llm({"profile": {}, "items": items}, "text-llm")
-    assert any("Dish 2 ₹1439" in w for w in draft.warnings)
+    assert [str(i.price) for i in draft.items] == ["369.00", "379.00", "379.00", "349.00", "5200.00"]
+    assert any("Dish 2 ₹1379 → ₹379" in w for w in draft.warnings)
+    assert any("Dish 4 ₹5200" in w for w in draft.warnings)
+
+
+def test_ocr_section_names_are_merged():
+    cats = ["Clay Pot & Tandoor", "-Claypot&Tandoor", "clay pot & tandoor", "Page 24", "DESSERTS", "desserts"]
+    items = [{"category": c, "name": f"Dish {i}", "price": "300"} for i, c in enumerate(cats)]
+    draft = draft_from_llm({"profile": {}, "items": items}, "text-llm")
+    assert [i.category for i in draft.items] == ["Clay Pot & Tandoor"] * 4 + ["Desserts"] * 2
 
 
 def test_llm_output_is_validated():
@@ -313,3 +323,34 @@ def test_restaurant_name_drops_a_trailing_location():
     assert name("Brew Room, Bengaluru", None, "Bengaluru") == "Brew Room"
     assert name("Toit - Brewpub", "Indiranagar", "Bengaluru") == "Toit - Brewpub"
     assert name("Café Noir", None, None) == "Café Noir"
+
+
+def test_respace_restores_word_breaks_from_the_text_layer():
+    from app.ingestion.extract import respace
+    from app.ingestion.text_parser import DraftItem, DraftMenu, DraftProfile
+
+    draft = DraftMenu(
+        items=[DraftItem(category="Tea&Notcoffee", name="SouthIndianFilter Coffee", price="110")],
+        profile=DraftProfile(name="Hearth&Beancafe"),
+    )
+    respace(draft, "HEARTH & BEAN CAFÉ\nTEA & NOT COFFEE\nSouth Indian Filter Coffee ₹110")
+    assert (draft.items[0].category, draft.items[0].name) == ("Tea & Not Coffee", "South Indian Filter Coffee")
+    assert draft.profile.name == "Hearth & Bean Café"
+
+
+def test_two_column_pages_are_read_column_by_column():
+    from app.ingestion.ocr import _lines
+
+    def box(x0, x1, y, text):
+        return [[[x0, y - 10], [x1, y - 10], [x1, y + 10], [x0, y + 10]], text, 0.9]
+
+    rows = [("Espresso", "130", "Peri Peri Fries", "180"), ("Americano", "160", "Tomato Soup", "190"),
+            ("Flat White", "210", "Pesto Pasta", "360"), ("Cold Brew", "220", "Tiramisu", "280"),
+            ("Mocha", "240", "Brownie", "170")]
+    result = []
+    for n, (a, pa, b, pb) in enumerate(rows):
+        y = 100 + 40 * n
+        result += [box(40, 200, y, a), box(330, 370, y, pa), box(460, 640, y, b), box(760, 800, y, pb)]
+    lines = _lines(result, 840)
+    assert lines[:2] == ["Espresso   130", "Americano   160"]
+    assert lines[5:7] == ["Peri Peri Fries   180", "Tomato Soup   190"]

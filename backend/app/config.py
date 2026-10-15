@@ -78,8 +78,8 @@ class Settings(BaseSettings):
     # Self-serve onboarding on the public landing page (no admin key).
     # Limits are per client IP per hour; reading a menu costs an LLM call.
     public_onboarding_enabled: bool = True
-    public_extract_per_hour: int = Field(default=6, ge=1)
-    public_publish_per_hour: int = Field(default=3, ge=1)
+    public_extract_per_hour: int = Field(default=20, ge=1)
+    public_publish_per_hour: int = Field(default=10, ge=1)
     public_max_items: int = Field(default=400, ge=1, le=1000)
 
     @property

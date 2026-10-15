@@ -50,20 +50,89 @@ def _engine() -> Any:
     return RapidOCR()
 
 
-def _lines(result: list | None) -> list[str]:
-    """Group OCR boxes into reading-order lines (left to right, top to bottom)."""
-    boxes = []
-    for box, text, _conf in result or []:
-        ys = [p[1] for p in box]
-        boxes.append(((min(ys) + max(ys)) / 2, max(ys) - min(ys), min(p[0] for p in box), text.strip()))
-    boxes.sort(key=lambda b: (b[0], b[2]))
-    lines: list[list[tuple[float, float, float, str]]] = []
+Box = tuple[float, float, float, float, str]  # (y-centre, height, x-left, x-right, text)
+
+
+def _rows(boxes: list[Box]) -> list[str]:
+    """Group boxes into lines by vertical position, each read left to right."""
+    boxes = sorted(boxes, key=lambda b: (b[0], b[2]))
+    lines: list[list[Box]] = []
     for b in boxes:
         if lines and abs(lines[-1][-1][0] - b[0]) < max(b[1], lines[-1][-1][1]) * 0.6:
             lines[-1].append(b)
         else:
             lines.append([b])
     return ["   ".join(t for *_, t in sorted(line, key=lambda b: b[2]) if t) for line in lines]
+
+
+_PRICE_ONLY = re.compile(r"^\W{0,2}[F?¥|丨IZ1]{0,2}\d{2,5}(\.\d{1,2})?(\s*/-)?$")
+
+
+def _splits_name_from_price(boxes: list[Box], x: float) -> int:
+    """How many rows have text left of ``x`` and a bare price right of it (a name/price gap, not a gutter)."""
+    count = 0
+    for y, h, x0, _x1, t in boxes:
+        if x0 < x or not _PRICE_ONLY.match(t.replace(" ", "")):
+            continue
+        # The nearest box to the price's left on the same row: if the gap between them is
+        # where x is, x separates a dish from its price.
+        same_row = [b for b in boxes if abs(y - b[0]) < max(h, b[1]) * 0.6 and b[3] <= x0]
+        if same_row and max(b[3] for b in same_row) <= x:
+            count += 1
+    return count
+
+
+def _gutter(boxes: list[Box], width: float) -> float | None:
+    """x of an empty vertical band splitting the page into two columns, if there is one.
+
+    Candidates are strips in the middle 30-70% of the page that almost no text
+    box crosses (a few full-width titles/footers may). A strip with prices just
+    to its right on dish-name rows is the gap between names and right-aligned
+    prices inside one column, so it's skipped.
+    """
+    if width <= 0 or len(boxes) < 8:
+        return None
+    bins = 200
+    step = width / bins
+    crossings = [0] * bins
+    for _y, _h, x0, x1, _t in boxes:
+        for i in range(max(0, int(x0 / step)), min(bins, int(x1 / step) + 1)):
+            crossings[i] += 1
+    allowed = max(2, len(boxes) // 15)
+    runs: list[tuple[int, float]] = []  # (width in bins, x-centre)
+    run = 0
+    for i in range(int(bins * 0.3), int(bins * 0.7) + 1):
+        if i < bins and crossings[i] <= allowed:
+            run += 1
+        elif run:
+            runs.append((run, (i - run / 2) * step))
+            run = 0
+    for size, x in sorted(runs, reverse=True):
+        if size * step < width * 0.015:
+            break
+        left = sum(1 for b in boxes if b[3] <= x)
+        right = sum(1 for b in boxes if b[2] >= x)
+        if left >= 4 and right >= 4 and _splits_name_from_price(boxes, x) < 2:
+            return x
+    return None
+
+
+def _lines(result: list | None, width: float = 0) -> list[str]:
+    """OCR boxes to reading-order lines; a two-column page is read column by column."""
+    boxes: list[Box] = []
+    for box, text, _conf in result or []:
+        xs, ys = [p[0] for p in box], [p[1] for p in box]
+        boxes.append(((min(ys) + max(ys)) / 2, max(ys) - min(ys), min(xs), max(xs), text.strip()))
+    gutter = _gutter(boxes, width)
+    if gutter is None:
+        return _rows(boxes)
+    spanning = [b for b in boxes if b[2] < gutter < b[3]]
+    left = [b for b in boxes if b[3] <= gutter]
+    right = [b for b in boxes if b[2] >= gutter]
+    top = min((b[0] for b in left + right), default=0)
+    head = [b for b in spanning if b[0] <= top]  # titles above the columns
+    foot = [b for b in spanning if b[0] > top]
+    return _rows(head) + _rows(left) + _rows(right) + _rows(foot)
 
 
 def ocr_image(image: Any) -> list[str]:
@@ -76,7 +145,7 @@ def ocr_image(image: Any) -> list[str]:
     with _lock:  # one OCR at a time: keeps memory flat on small servers
         # Menus are upright; skipping the rotation classifier saves ~30%.
         result, _ = _engine()(np.asarray(image.convert("RGB")), use_cls=False)
-    return _lines(result)
+    return _lines(result, image.size[0])
 
 
 def ocr_photo(data: bytes) -> list[str]:
