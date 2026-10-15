@@ -54,46 +54,16 @@ class Upload:
     data: bytes
 
 
-SYSTEM = """You transcribe restaurant and café menus into structured data.
-
-Rules:
-- Transcribe only what is printed. Never invent items, prices or descriptions.
-- One entry per orderable item, under the section heading it appears in.
-- price is the number only, as printed, without currency ("250", "249.50").
-- If an item has several sizes/options with their own prices (Regular/Large,
-  Half/Full, Hot/Iced...), list them in variants and set price to the first one.
-  Otherwise variants is [].
-- item_type: "beverage" for anything drunk, "dessert" for sweets, else "food".
-- temperature: "hot" or "cold" for beverages when clear from the name or
-  section, otherwise null. null for food.
-- contains_coffee: true/false for beverages when clear, otherwise null.
-- is_vegetarian: true ONLY when the menu marks it (a green veg symbol, "(V)",
-  an all-veg restaurant statement). false when the menu marks it non-veg or
-  the item's name or description names meat, fish, seafood or egg.
-  Otherwise null. Vegetarian follows the Indian convention: no meat, fish or egg.
-- tags: up to 4 short lowercase words useful for search, chosen from things
-  like coffee, tea, espresso, milk-based, juice, shake, smoothie, mocktail,
-  starter, soup, salad, main, pasta, pizza, burger, sandwich, wrap, bowl,
-  rice, noodles, bread, breakfast, shareable, spicy.
-- description: the printed description, or null. Do not write your own.
-- profile: the restaurant's name, tagline, address, city and phone if they are
-  printed on the menu, otherwise null.
-- Skip taxes, service-charge notes, timings and other non-item text.
-
-The text usually comes from OCR of a designed menu, so:
-- Words may be run together or split ("CLASSICPANEERTIKKA", "HA KK A"). Write
-  names with normal spacing and Title Case ("Classic Paneer Tikka").
-- A price's rupee sign may come out as F, ?, ¥, |, I or Z ("F239", "|379",
-  "IF369"): the price is the digits after it (239, 379, 369). Never alter the
-  digits themselves.
-- Lines can mix two columns; use the layout and headings to keep each price
-  with its own dish.
-- category must be a section heading printed in the text. Items before the
-  first heading in this text belong to the heading the page is about (often
-  repeated as the page title), not a heading you make up."""
+SYSTEM = """Extract a restaurant menu from OCR text into JSON. Only what is printed; never invent.
+- One entry per orderable item. section = the printed heading it sits under (never made up).
+- price = digits only. OCR may print ₹ as F ? | I Z: "F239" means 239. Never change digits.
+- sizes = [{name, price}] when an item has several priced options (Half/Full, Reg/Large), else [].
+- veg: true only if marked veg; false if marked non-veg or the name has meat/fish/egg; else null.
+- type: beverage, food or dessert.
+- Fix OCR spacing/case in names ("CLASSICPANEERTIKKA" -> "Classic Paneer Tikka").
+- profile: restaurant name, address, city, phone if printed, else null."""
 
 _NULLABLE_STR = {"anyOf": [{"type": "string"}, {"type": "null"}]}
-_NULLABLE_BOOL = {"anyOf": [{"type": "boolean"}, {"type": "null"}]}
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -103,29 +73,20 @@ SCHEMA: dict[str, Any] = {
         "profile": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["name", "tagline", "address_line", "city", "phone"],
-            "properties": {k: _NULLABLE_STR for k in ("name", "tagline", "address_line", "city", "phone")},
+            "required": ["name", "address_line", "city", "phone"],
+            "properties": {k: _NULLABLE_STR for k in ("name", "address_line", "city", "phone")},
         },
         "items": {
             "type": "array",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": [
-                    "category", "name", "price", "description", "item_type", "temperature",
-                    "contains_coffee", "is_vegetarian", "tags", "variants",
-                ],
+                "required": ["section", "name", "price", "sizes", "veg", "type"],
                 "properties": {
-                    "category": {"type": "string"},
+                    "section": {"type": "string"},
                     "name": {"type": "string"},
                     "price": {"type": "string"},
-                    "description": _NULLABLE_STR,
-                    "item_type": {"type": "string", "enum": ["beverage", "food", "dessert"]},
-                    "temperature": {"anyOf": [{"type": "string", "enum": ["hot", "cold"]}, {"type": "null"}]},
-                    "contains_coffee": _NULLABLE_BOOL,
-                    "is_vegetarian": _NULLABLE_BOOL,
-                    "tags": {"type": "array", "items": {"type": "string"}},
-                    "variants": {
+                    "sizes": {
                         "type": "array",
                         "items": {
                             "type": "object",
@@ -134,11 +95,96 @@ SCHEMA: dict[str, Any] = {
                             "properties": {"name": {"type": "string"}, "price": {"type": "string"}},
                         },
                     },
+                    "veg": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
+                    "type": {"type": "string", "enum": ["beverage", "food", "dessert"]},
                 },
             },
         },
     },
 }
+
+
+# --- Condensing: send the model only the lines that carry menu data --------
+
+_BOILERPLATE = re.compile(
+    r"(gst|tax(es)?\b|service charge|prices? (are|in|exclusive|inclusive)|exclusive of|inclusive of|"
+    r"allerg|subject to|terms|conditions|www\.|https?:|\.com\b|instagram|facebook|follow us|@\w|"
+    r"wi-?fi|timings?|open (daily|from)|reserved|copyright|©|ask (our|your) (staff|server)|"
+    r"\bpage \d+\b|^\d{1,3}$)",
+    re.I,
+)
+_PRICE_TOKEN = re.compile(r"(?<![\d.])[F?¥|丨IZ₹%=<1]{0,2}(\d{2,5})(?![\d])")
+_YEAR_CONTEXT = re.compile(r"\b(in|since|est\.?|estd\.?|established|year|©)\s*$", re.I)
+
+
+def _has_price(line: str) -> bool:
+    """A number that could be a price (not a year like "since 2019")."""
+    for m in _PRICE_TOKEN.finditer(line):
+        if re.fullmatch(r"(19|20)\d\d", m.group(1)) and _YEAR_CONTEXT.search(line[: m.start()]):
+            continue
+        return True
+    return False
+
+
+def _is_prose(line: str) -> bool:
+    """Description or marketing copy, not a heading, dish name or price line.
+
+    Dish names and headings are Title Case or CAPITALS; descriptions read like
+    sentences: mostly lowercase words, commas, a full stop.
+    """
+    if _has_price(line):
+        return False
+    words = re.findall(r"[A-Za-z][\w'’-]*", line)
+    if len(words) < 3:
+        return False
+    lower = sum(1 for w in words if w[0].islower() and w.lower() not in {"of", "and", "with", "the", "&", "in", "a"})
+    sentence = line.rstrip().endswith((".", "!", ","))
+    return sentence or lower >= 2 or ("," in line and lower >= 1) or len(words) >= 9
+
+
+def condense(text: str, *, keep_header: bool = False) -> str:
+    """Keep headings, dish names, prices and sizes; drop descriptions, slogans and fine print.
+
+    ``keep_header`` keeps the first lines (restaurant name, address, phone) untouched,
+    for the profile. A page with no price at all is dropped entirely.
+    """
+    lines = [re.sub(r"\s{2,}", "   ", ln).strip() for ln in text.splitlines()]
+    lines = [ln for ln in lines if len(re.sub(r"[^\w]", "", ln)) >= 2]
+    header = lines[:4] if keep_header else []
+    body = lines[len(header):]
+    if sum(1 for ln in lines if _has_price(ln)) < 2:
+        return "\n".join(header)
+    kept = [ln for ln in body if not _BOILERPLATE.search(ln) and not _is_prose(ln)]
+    return "\n".join(header + kept)
+
+
+# --- Filling in what the model no longer returns ---------------------------
+
+_COLD = re.compile(r"\b(iced|ice|cold|frapp|shake|smoothie|cooler|mojito|lemonade|soda|slush|chilled)", re.I)
+_HOT = re.compile(r"\b(hot|tea|chai|espresso|cappuccino|latte|americano|filter|soup)\b", re.I)
+_COFFEE = re.compile(r"\b(coffee|espresso|latte|cappuccino|mocha|americano|frapp\w*|macchiato|cortado|"
+                     r"affogato|flat white|cold brew)", re.I)
+_TAG_WORDS = (
+    "coffee", "tea", "espresso", "juice", "shake", "smoothie", "mocktail", "soup", "salad", "pasta", "pizza",
+    "burger", "sandwich", "wrap", "bowl", "rice", "biryani", "noodles", "bread", "naan", "breakfast", "starter",
+    "dessert", "cake", "momo", "dimsum", "paneer", "chaat", "curry", "tikka", "fries",
+)
+
+
+def _enrich(item: DraftItem) -> None:
+    text = f"{item.category} {item.name}"
+    if item.item_type == "beverage":
+        if item.temperature is None:
+            item.temperature = "cold" if _COLD.search(text) else "hot" if _HOT.search(text) else None
+        if item.contains_coffee is None and _COFFEE.search(text):
+            item.contains_coffee = True
+    if not item.tags:
+        low = text.lower()
+        item.tags = [w for w in _TAG_WORDS if re.search(rf"\b{w}", low)][:4]
+        if item.item_type == "food" and re.search(r"starter|appeti|small plate|snack|chaat", low):
+            item.tags.append("starter")
+        elif item.item_type == "food" and re.search(r"main|curr|biryani|pasta|pizza|rice|noodle|bowl", low):
+            item.tags.append("main")
 
 
 def _money(raw: Any) -> Decimal | None:
@@ -240,7 +286,7 @@ def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
             continue
         name = str(raw.get("name") or "").strip()
         variants = []
-        for v in raw.get("variants") or []:
+        for v in raw.get("sizes") or raw.get("variants") or []:
             price = _money(v.get("price")) if isinstance(v, dict) else None
             if price is not None and str(v.get("name") or "").strip():
                 variants.append(DraftVariant(name=str(v["name"]).strip()[:80], price=price))
@@ -253,14 +299,15 @@ def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
         try:
             items.append(
                 DraftItem(
-                    category=_section_name(raw.get("category")),
+                    category=_section_name(raw.get("section") or raw.get("category")),
                     name=name[:160],
                     price=price,
                     description=(str(raw.get("description") or "").strip() or None),
-                    item_type=raw.get("item_type") if raw.get("item_type") in ("beverage", "food", "dessert") else "food",
+                    item_type=kind if (kind := raw.get("type") or raw.get("item_type")) in ("beverage", "food", "dessert")
+                    else "food",
                     temperature=raw.get("temperature") if raw.get("temperature") in ("hot", "cold") else None,
                     contains_coffee=raw.get("contains_coffee") if isinstance(raw.get("contains_coffee"), bool) else None,
-                    is_vegetarian=raw.get("is_vegetarian") if isinstance(raw.get("is_vegetarian"), bool) else None,
+                    is_vegetarian=veg if isinstance(veg := raw.get("veg", raw.get("is_vegetarian")), bool) else None,
                     tags=[str(t).strip().lower()[:40] for t in (raw.get("tags") or []) if str(t).strip()][:12],
                     variants=variants[:12],
                 )
@@ -273,6 +320,8 @@ def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
     if profile.name:
         profile.name = _restaurant_name(profile.name, profile)
     _tidy_sections(items)
+    for item in items:
+        _enrich(item)
     fixed, suspicious = _fix_misread_prices(items)
     if fixed:
         warnings.append(f"Corrected prices where the ₹ sign was read as a 1 (please check): {', '.join(fixed)}")
@@ -367,9 +416,10 @@ def _structure_text(
 
     def pages_seen() -> Iterator[tuple[str, str]]:
         # OCR is slow on a small server: stop reading new pages when time runs out.
-        for label, text in pages:
+        for n, (label, text) in enumerate(pages):
             seen.append(text)
-            yield label, text
+            # The model only sees menu lines (names, prices, sections): fewer tokens, faster reads.
+            yield label, condense(text, keep_header=n == 0) if label != "pasted text" else text
             if time.monotonic() > deadline - 20:
                 skipped.append(label)
                 return
@@ -489,12 +539,18 @@ def respace(draft: DraftMenu, reference: str) -> None:
         draft.profile.name = fix(draft.profile.name)
 
 
-def _pages(uploads: list[Upload], text: str, layers_seen: list[str]) -> Iterator[tuple[str, str]]:
+def _pages(
+    uploads: list[Upload], text: str, layers_seen: list[str], use_ocr: bool
+) -> Iterator[tuple[str, str]]:
     """Each page's text in order, OCR'd lazily so structuring can start on the first pages."""
     for up in uploads:
         if up.content_type == PDF_TYPE:
             layers = pdf_text_layers(up.data)
             layers_seen += layers
+            if not use_ocr:
+                for n, layer in enumerate(layers, start=1):
+                    yield f"{up.filename} page {n}", layer
+                continue
             n = 0
             try:
                 for n, lines in enumerate(ocr.pdf_pages_ocr(up.data, layers), start=1):
@@ -503,6 +559,11 @@ def _pages(uploads: list[Upload], text: str, layers_seen: list[str]) -> Iterator
                 logger.warning("OCR failed for %s after %d pages, using its text layer: %s", up.filename, n, exc)
                 for m, layer in enumerate(layers[n:], start=n + 1):
                     yield f"{up.filename} page {m}", layer
+        elif not use_ocr:
+            raise ExtractionError(
+                f"{up.filename}: photos are read in your browser, and that didn't work. "
+                "Reload the page and try again, or upload a PDF."
+            )
         else:
             try:
                 yield up.filename, "\n".join(ocr.ocr_photo(up.data))
@@ -510,6 +571,35 @@ def _pages(uploads: list[Upload], text: str, layers_seen: list[str]) -> Iterator
                 raise ExtractionError(f"{up.filename}: couldn't read that image.") from exc
     if text.strip():
         yield "pasted text", text
+
+
+@dataclass
+class PageText:
+    """A page already read on the client (browser OCR): its OCR text and the PDF's text layer, if any."""
+
+    label: str
+    text: str
+    layer: str = ""
+
+
+def extract_from_pages(
+    pages: list[PageText], text: str, *, settings: Settings, provider: LLMProvider | None
+) -> DraftMenu:
+    """Structure pages the browser already OCR'd (no OCR on the server)."""
+    def stream() -> Iterator[tuple[str, str]]:
+        for page in pages:
+            known = set(re.findall(r"\d{2,5}", page.layer))
+            yield page.label, "\n".join(ocr.fix_prices(line, known) for line in page.text.splitlines())
+        if text.strip():
+            yield "pasted text", text
+
+    draft = _structure_text(stream(), provider, settings)
+    layers = "\n".join(p.layer for p in pages)
+    if layers.strip():
+        respace(draft, layers)
+    if not draft.items and not draft.unparsed_lines:
+        raise ExtractionError("No text could be read from that file. Try a clearer photo, or paste the menu text.")
+    return draft
 
 
 def extract_menu(
@@ -524,7 +614,7 @@ def extract_menu(
                 "Use PDF, JPG, PNG or WebP (convert iPhone HEIC photos to JPG)."
             )
     layers: list[str] = []
-    draft = _structure_text(_pages(uploads, text, layers), provider, settings)
+    draft = _structure_text(_pages(uploads, text, layers, settings.server_ocr_enabled), provider, settings)
     if any(layer.strip() for layer in layers):
         respace(draft, "\n".join(layers))
     if not draft.items and not draft.unparsed_lines:

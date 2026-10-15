@@ -13,6 +13,7 @@ import {
   type CafeProfile,
   type DraftItem,
   type DraftMenu,
+  type ExtractProgress,
   type OnboardClient,
   type OnboardingStatus,
   type Owner,
@@ -94,6 +95,7 @@ export function UploadStep({
   const [text, setText] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
+  const [progress, setProgress] = React.useState<ExtractProgress | null>(null);
   React.useEffect(() => {
     if (!busy) return;
     setElapsed(0);
@@ -111,7 +113,8 @@ export function UploadStep({
   const run = async () => {
     setBusy(true);
     try {
-      const draft = await client.extract(files, text);
+      setProgress(null);
+      const draft = await client.extract(files, text, setProgress);
       if (!draft.items.length) {
         toast.error(draft.warnings[0] || "No menu items were found.");
         return;
@@ -198,11 +201,21 @@ export function UploadStep({
       <div className="mt-4 flex items-center gap-3">
         <Button onClick={run} disabled={busy || (!files.length && !text.trim())}>
           {busy && <Loader2 className="animate-spin" />}
-          {busy ? `Reading the menu… ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}` : "Read menu"}
+          {busy
+            ? `${
+                progress?.phase === "ocr"
+                  ? `Reading page ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
+                  : progress?.phase === "structuring"
+                    ? "Organising the items…"
+                    : "Getting ready…"
+              } ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`
+            : "Read menu"}
         </Button>
         {busy && (
           <span className="text-xs text-muted-foreground">
-            Reading every page and price. About 15 to 30 seconds a page, so keep this tab open.
+            {progress?.phase === "structuring"
+              ? "Sorting items into sections and checking prices. Usually under two minutes."
+              : "Pages are read on this device, a few seconds each. Keep this tab open."}
           </span>
         )}
       </div>

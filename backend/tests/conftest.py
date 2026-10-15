@@ -19,6 +19,7 @@ os.environ["RATE_LIMIT_CHAT_PER_MINUTE"] = "1000"
 os.environ["RATE_LIMIT_SEARCH_PER_MINUTE"] = "1000"
 os.environ["ADMIN_API_KEY"] = "test-admin-key"
 os.environ["ENVIRONMENT"] = "test"
+os.environ["SERVER_OCR_ENABLED"] = "true"  # exercise the server OCR path too
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

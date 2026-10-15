@@ -157,7 +157,7 @@ def ocr_photo(data: bytes) -> list[str]:
 
 # A price, optionally behind a misread rupee sign, possibly glued to the dish
 # name ("PESHAWARIALOOIF379"). Group 1 is the misread sign, group 2 the digits.
-_PRICE = re.compile(r"(I?F|[?¥|丨₹Z]|(?<![\w.])[Il1](?=F?\d))?F?(?<!\d)(\d{2,5})(?!\d)")
+_PRICE = re.compile(r"(I?F|[?¥|丨₹Z%=<]|(?<![\w.])[Il1](?=F?\d))?F?(?<!\d)(\d{2,5})(?!\d)")
 
 
 def fix_prices(line: str, known: set[str]) -> str:
@@ -171,8 +171,10 @@ def fix_prices(line: str, known: set[str]) -> str:
             prefix = m.group(0)[: -len(digits)]
         if digits in known and prefix:
             return f"₹{digits}"
-        # "1369" where the text layer only has 369: the 1 was the ₹ sign.
-        if digits not in known and len(digits) > 2 and digits[0] in "17" and digits[1:] in known:
+        # "1369" where the text layer only has 369: the 1 was the ₹ sign. (Tesseract reads it
+        # as other digits too; any extra leading digit is safe to drop when the PDF itself
+        # never prints the longer number.)
+        if digits not in known and len(digits) > 2 and digits[1:] in known:
             return f"₹{digits[1:]}"
         return m.group(0)
 

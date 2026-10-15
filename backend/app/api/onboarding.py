@@ -7,14 +7,13 @@ import secrets
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.ingestion import publish as publisher
-from app.ingestion.extract import ExtractionError, Upload, extract_menu
-from app.ingestion.ocr import ocr_available
+from app.ingestion.extract import ExtractionError, PageText, Upload, extract_from_pages, extract_menu
 from app.ingestion.text_parser import DraftMenu, parse_menu_text
 from app.llm.base import LLMProvider
 from app.llm.factory import get_provider
@@ -43,12 +42,33 @@ def parse_text(body: MenuTextIn) -> DraftMenu:
 @router.get("/status", dependencies=[Depends(require_admin)])
 def onboarding_status(settings: Settings = Depends(get_settings)) -> dict:
     """What the upload can read on this server (shown on the admin page)."""
-    return {"reads_photos_and_scans": ocr_available(), "max_upload_mb": settings.menu_upload_max_mb}
+    return {"reads_photos_and_scans": True, "max_upload_mb": settings.menu_upload_max_mb}
+
+
+class PageIn(BaseModel):
+    label: str = Field(max_length=300)
+    text: str = Field(max_length=40_000)
+    layer: str = Field(default="", max_length=40_000)
 
 
 async def _extract(
-    files: list[UploadFile], text: str, settings: Settings, provider: LLMProvider | None
+    files: list[UploadFile], text: str, settings: Settings, provider: LLMProvider | None, pages: str = ""
 ) -> DraftMenu:
+    if pages:
+        # The browser already OCR'd the files: only structuring happens here.
+        try:
+            parsed = TypeAdapter(list[PageIn]).validate_json(pages)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail="Invalid page data.") from exc
+        if not 0 < len(parsed) <= 200 or sum(len(p.text) for p in parsed) > 400_000:
+            raise HTTPException(status_code=422, detail="Upload at most 200 pages.")
+        page_texts = [PageText(label=p.label, text=p.text, layer=p.layer) for p in parsed]
+        try:
+            return await run_in_threadpool(
+                extract_from_pages, page_texts, text, settings=settings, provider=provider
+            )
+        except ExtractionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if len(files) > 10:
         raise HTTPException(status_code=422, detail="Upload at most 10 files.")
     uploads, total = [], 0
@@ -70,11 +90,12 @@ async def _extract(
 async def extract(
     files: list[UploadFile] = File(default=[]),
     text: str = Form(default="", max_length=50_000),
+    pages: str = Form(default="", max_length=2_000_000),
     settings: Settings = Depends(get_settings),
     provider: LLMProvider | None = Depends(get_provider),
 ) -> DraftMenu:
-    """Menu PDF / photos / pasted text to a reviewable draft. Does not persist anything."""
-    return await _extract(files, text, settings, provider)
+    """Menu PDF / photos / pasted text (or pages the browser already OCR'd) to a reviewable draft."""
+    return await _extract(files, text, settings, provider, pages)
 
 
 @router.post(
@@ -116,7 +137,7 @@ def require_public(settings: Settings = Depends(get_settings)) -> None:
 @public.get("/status", dependencies=[Depends(require_public)])
 def public_status(settings: Settings = Depends(get_settings)) -> dict:
     return {
-        "reads_photos_and_scans": ocr_available(),
+        "reads_photos_and_scans": True,
         "max_upload_mb": settings.menu_upload_max_mb,
         "max_items": settings.public_max_items,
     }
@@ -130,11 +151,12 @@ def public_status(settings: Settings = Depends(get_settings)) -> dict:
 async def public_extract(
     files: list[UploadFile] = File(default=[]),
     text: str = Form(default="", max_length=50_000),
+    pages: str = Form(default="", max_length=2_000_000),
     settings: Settings = Depends(get_settings),
     provider: LLMProvider | None = Depends(get_provider),
 ) -> DraftMenu:
     """Read an owner's menu into a draft they can check. Does not persist anything."""
-    return await _extract(files, text, settings, provider)
+    return await _extract(files, text, settings, provider, pages)
 
 
 @public.post(

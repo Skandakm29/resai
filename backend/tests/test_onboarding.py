@@ -1,6 +1,7 @@
 """Upload a menu -> review the draft -> publish a live page."""
 
 import io
+import json
 
 from app.config import get_settings
 from app.ingestion import extract
@@ -354,3 +355,56 @@ def test_two_column_pages_are_read_column_by_column():
     lines = _lines(result, 840)
     assert lines[:2] == ["Espresso   130", "Americano   160"]
     assert lines[5:7] == ["Peri Peri Fries   180", "Tomato Soup   190"]
+
+
+def test_extract_accepts_pages_ocrd_in_the_browser(client):
+    pages = [
+        {"label": "menu.pdf page 1", "text": "HOT COFFEE\nCappuccino   %210\nSouthIndianFilter Coffee   1110",
+         "layer": "HOT COFFEE Cappuccino ₹210 South Indian Filter Coffee ₹110"},
+    ]
+    r = client.post("/api/start/extract", data={"pages": json.dumps(pages)})
+    assert r.status_code == 200, r.text
+    assert [(i["name"], i["price"]) for i in r.json()["items"]] == [
+        ("Cappuccino", "210.00"), ("South Indian Filter Coffee", "110.00"),
+    ]
+    assert client.post("/api/start/extract", data={"pages": "not json"}).status_code == 422
+    assert client.post("/api/start/extract", data={"pages": "[]"}).status_code == 422
+
+
+def test_without_server_ocr_pdfs_use_their_text_layer_and_photos_ask_for_a_retry(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "server_ocr_enabled", False)
+    pdf = _pdf(["HOT COFFEE", "Cappuccino 210"])
+    r = client.post("/api/start/extract", files=[("files", ("menu.pdf", pdf, "application/pdf"))])
+    assert [i["name"] for i in r.json()["items"]] == ["Cappuccino"]
+    photo = ("files", ("menu.jpg", _photo(["Masala Chai 90"]), "image/jpeg"))
+    r = client.post("/api/start/extract", files=[photo])
+    assert r.status_code == 422 and "browser" in r.json()["detail"]
+
+
+def test_condense_keeps_menu_lines_and_drops_the_rest():
+    from app.ingestion.extract import condense
+
+    page = "\n".join([
+        "HEARTH & BEAN CAFE", "14, 12th Main, Indiranagar · +91 98450 12345",
+        "HOT COFFEE", "Espresso   130", "Single origin Chikmagalur, pulled short",
+        "Americano   Reg 160 / Large 190", "A warm bowl of soup that evokes timeless tales.",
+        "All prices exclusive of 5% GST", "@hearthandbean", "Committed to Quality.",
+    ])
+    assert condense(page, keep_header=True).splitlines() == [
+        "HEARTH & BEAN CAFE", "14, 12th Main, Indiranagar · +91 98450 12345",
+        "HOT COFFEE", "Espresso   130", "Americano   Reg 160 / Large 190",
+    ]
+    # A page without prices (an "about us" page) is skipped; years aren't prices.
+    assert condense("Our Story\nRoasting since 2019, in Bengaluru.\nEst. 2019") == ""
+
+
+def test_compact_model_output_is_filled_in_by_rules():
+    draft = draft_from_llm({"profile": {}, "items": [
+        {"section": "Cold Coffee", "name": "Iced Latte", "price": "220", "sizes": [], "veg": True, "type": "beverage"},
+        {"section": "Mains", "name": "Pesto Pasta", "price": "360", "sizes": [
+            {"name": "Half", "price": "260"}, {"name": "Full", "price": "360"}], "veg": None, "type": "food"},
+    ]}, "text-llm")
+    latte, pasta = draft.items
+    assert (latte.temperature, latte.contains_coffee, latte.is_vegetarian) == ("cold", True, True)
+    assert "coffee" in latte.tags and {"pasta", "main"} <= set(pasta.tags)
+    assert [v.name for v in pasta.variants] == ["Half", "Full"]

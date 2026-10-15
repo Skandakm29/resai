@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # not done by then are reported in the draft's warnings.
     menu_text_budget_seconds: float = Field(default=290.0, ge=10)
     menu_upload_max_mb: int = Field(default=20, ge=1, le=30)
+    # OCR normally runs in the owner's browser. Server-side OCR (RapidOCR)
+    # needs ~1 GB of RAM and a real CPU, so it's off unless the instance can
+    # take it; without it, uploaded PDFs fall back to their embedded text.
+    server_ocr_enabled: bool = False
 
     # Self-serve onboarding on the public landing page (no admin key).
     # Limits are per client IP per hour; reading a menu costs an LLM call.

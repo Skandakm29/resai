@@ -1,5 +1,7 @@
 /** Clients for menu upload -> draft -> live page: admin (/api/onboarding) and self-serve (/api/start). */
 
+import { readMenuFiles, type PageText } from "./ocr";
+
 /** The product name on the public landing page. */
 export const PRODUCT = "Resai";
 
@@ -140,11 +142,28 @@ function profileBody(profile: CafeProfile) {
   };
 }
 
-function extract(key: string | null, files: File[], text: string) {
+export type ExtractProgress = { phase: "ocr"; done: number; total: number } | { phase: "structuring" };
+
+async function extract(
+  key: string | null,
+  files: File[],
+  text: string,
+  onProgress?: (p: ExtractProgress) => void,
+) {
+  // OCR runs on this device; the server only organises the text into items.
+  let pages: PageText[] | null = null;
+  if (files.length) {
+    try {
+      pages = await readMenuFiles(files, (p) => onProgress?.({ phase: "ocr", ...p }));
+    } catch (e) {
+      console.warn("Reading the menu in the browser failed; uploading the files instead.", e);
+    }
+  }
   const form = new FormData();
-  files.forEach((f) => form.append("files", f));
+  if (pages) form.append("pages", JSON.stringify(pages));
+  else files.forEach((f) => form.append("files", f));
   form.append("text", text);
-  // Reading a long menu with Claude can take a few minutes.
+  onProgress?.({ phase: "structuring" });
   return call<DraftMenu>(key, key === null ? "/extract" : "/menu/extract", {
     method: "POST",
     body: form,
@@ -155,14 +174,14 @@ function extract(key: string | null, files: File[], text: string) {
 /** What the upload and review steps need, for either the admin or the public page. */
 export type OnboardClient = {
   status: () => Promise<OnboardingStatus>;
-  extract: (files: File[], text: string) => Promise<DraftMenu>;
+  extract: (files: File[], text: string, onProgress?: (p: ExtractProgress) => void) => Promise<DraftMenu>;
   publish: (profile: CafeProfile, items: DraftItem[], opts: { replace?: boolean; owner?: Owner }) => Promise<PublishedCafe>;
 };
 
 export function adminClient(key: string): OnboardClient {
   return {
     status: () => call<OnboardingStatus>(key, "/status", { timeoutMs: 90_000 }),
-    extract: (files, text) => extract(key, files, text),
+    extract: (files, text, onProgress) => extract(key, files, text, onProgress),
     publish: (profile, items, { replace = false }) =>
       call<PublishedCafe>(key, "/restaurants", json({ profile: profileBody(profile), items, replace })),
   };
@@ -170,7 +189,7 @@ export function adminClient(key: string): OnboardClient {
 
 export const publicClient: OnboardClient = {
   status: () => call<OnboardingStatus>(null, "/status", { timeoutMs: 90_000 }),
-  extract: (files, text) => extract(null, files, text),
+  extract: (files, text, onProgress) => extract(null, files, text, onProgress),
   publish: (profile, items, { owner }) =>
     call<PublishedCafe>(null, "/publish", json({ profile: profileBody(profile), items, owner })),
 };
