@@ -144,7 +144,7 @@ decimal strings (`"210.00"`), never floats.
 **Self-serve (`/`).** The home page is a landing page for restaurant owners.
 They upload a menu, check the items, leave their name and email, and get
 their live link and a QR code straight away. No key is needed. Each IP can
-read 6 menus and publish 3 pages per hour (`PUBLIC_EXTRACT_PER_HOUR`,
+read 20 menus and publish 10 pages per hour (`PUBLIC_EXTRACT_PER_HOUR`,
 `PUBLIC_PUBLISH_PER_HOUR`), and `PUBLIC_ONBOARDING_ENABLED=false` closes
 sign-ups. Self-serve never overwrites a page: a taken link gets `-2`, `-3`...
 
@@ -157,7 +157,14 @@ sign-ups. Self-serve never overwrites a page: a taken link gets `-2`, `-3`...
    replaces the menu. The sidebar lists every published page, with the
    owner's contact for self-serve sign-ups, and can take pages down.
 
-`ANTHROPIC_API_KEY` (optional) lets both read menu photos and scanned PDFs.
+**How a menu is read.** Each PDF page (rendered with pdfium) or photo goes
+through RapidOCR on the server, read column by column. Misread rupee signs
+are corrected against the PDF's text layer when it has one, which also
+restores word breaks OCR loses. The text is then structured by the Groq
+models in `MENU_TEXT_MODELS`, in chunks spread across the models in
+parallel (each has its own free-tier per-minute limit), while OCR is still
+running. OCR takes a few seconds a page on a laptop and much longer on
+Render's free CPU, so long menus need a bigger instance.
 
 ## Try these
 
@@ -181,9 +188,10 @@ See [docs/TESTING.md](docs/TESTING.md#sample-conversations) for the full list:
   never says otherwise (`ordering_enabled` is `false` for the demo).
 - **Onboarding:** the landing page (`/`, self-serve) and `/admin` take a menu PDF, photos or pasted
   text, shows an editable draft (names, prices, sections, type, veg), and
-  publishes it at `/r/{slug}` with a ready-to-send cold email. Claude reads
-  photos and scanned PDFs when `ANTHROPIC_API_KEY` is set; otherwise the PDF
-  text layer goes through the chat LLM (or the rule parser). Uploaded menus
+  publishes it at `/r/{slug}` with a ready-to-send cold email. Pages and
+  photos are read with local open-source OCR (RapidOCR), then structured by
+  open-source models on Groq (`MENU_TEXT_MODELS`), or by the rule parser
+  without an LLM. No file goes to a document API. Uploaded menus
   start with allergens and ingredients unverified. There are no owner
   accounts yet, so owners can't edit their own page after publishing.
 - **Images:** the seed has no photos. Cards show a neutral illustrated

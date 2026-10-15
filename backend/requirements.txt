@@ -9,3 +9,17 @@ anthropic==1.13.0
 httpx==0.28.1
 python-multipart==0.0.32
 pypdf==6.20.1
+# Menu OCR (open source, runs locally). rapidocr_onnxruntime itself is
+# installed with --no-deps (see render.yaml / Dockerfile) because it depends on
+# the desktop opencv-python, which needs GUI libraries servers don't have;
+# its real dependencies are listed here with the headless OpenCV build.
+pypdfium2==5.14.0
+onnxruntime==1.31.0
+opencv-python-headless==5.0.0.93
+numpy==2.5.4
+Pillow==12.3.0
+pyclipper==1.4.0
+Shapely==2.2.0
+PyYAML==6.0.3
+six==1.17.0
+tqdm==4.70.1

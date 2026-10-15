@@ -62,8 +62,7 @@ const EMPTY_PROFILE: CafeProfile = {
 };
 
 const METHOD_LABEL: Record<DraftMenu["method"], string> = {
-  vision: "Read by Claude from the file",
-  "text-llm": "Text layer structured by the AI",
+  "text-llm": "Read with OCR and structured by the AI",
   "text-rules": "Text layer parsed by rules (check carefully)",
 };
 
@@ -94,6 +93,14 @@ export function UploadStep({
   const [files, setFiles] = React.useState<File[]>([]);
   const [text, setText] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [elapsed, setElapsed] = React.useState(0);
+  React.useEffect(() => {
+    if (!busy) return;
+    setElapsed(0);
+    const started = Date.now();
+    const timer = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
   const [dragging, setDragging] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -145,7 +152,7 @@ export function UploadStep({
             ? `PDF or photos of each page (JPG, PNG, WebP). Up to 10 files, ${status?.max_upload_mb ?? 20} MB in total.`
             : mode === "public"
               ? "A PDF menu works best. For photos, paste the menu text below instead."
-              : "PDFs with selectable text only. Photos and scans need ANTHROPIC_API_KEY on the backend."}
+              : "PDFs with selectable text only. Photos and scans need the OCR packages on the backend."}
         </span>
       </button>
       <input
@@ -191,11 +198,11 @@ export function UploadStep({
       <div className="mt-4 flex items-center gap-3">
         <Button onClick={run} disabled={busy || (!files.length && !text.trim())}>
           {busy && <Loader2 className="animate-spin" />}
-          {busy ? "Reading the menu…" : "Read menu"}
+          {busy ? `Reading the menu… ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}` : "Read menu"}
         </Button>
         {busy && (
           <span className="text-xs text-muted-foreground">
-            Reading every item and price. A long menu can take 1 to 3 minutes, so keep this tab open.
+            Reading every page and price. About 15 to 30 seconds a page, so keep this tab open.
           </span>
         )}
       </div>

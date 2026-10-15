@@ -31,7 +31,7 @@ export type DraftMenu = {
   profile: DraftProfile;
   unparsed_lines: string[];
   warnings: string[];
-  method: "vision" | "text-llm" | "text-rules";
+  method: "text-llm" | "text-rules";
 };
 
 export type CafeProfile = {

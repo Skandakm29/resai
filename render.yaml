@@ -19,7 +19,8 @@ services:
     plan: free
     region: singapore
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    # rapidocr without its deps: they're in requirements.txt with headless OpenCV.
+    buildCommand: pip install -r requirements.txt && pip install --no-deps rapidocr_onnxruntime==1.4.4
     # Migrations + idempotent seed on every start (the free plan has no
     # separate pre-deploy step). The seed skips restaurants that already exist.
     startCommand: alembic upgrade head && python -m app.seed.seed && uvicorn app.main:app --host 0.0.0.0 --port $PORT
@@ -47,12 +48,9 @@ services:
       - key: GROQ_API_KEY
         sync: false
       # Café onboarding (/admin). Render generates the key; copy it from the
-      # dashboard to sign in. ANTHROPIC_API_KEY (optional) lets uploads read
-      # menu photos and scanned PDFs with Claude.
+      # dashboard to sign in. Menus are read with local OCR + the Groq models.
       - key: ADMIN_API_KEY
         generateValue: true
-      - key: ANTHROPIC_API_KEY
-        sync: false
       - key: RATE_LIMIT_ENABLED
         value: "true"
       # Render's proxy sits in front of the service, so the client IP is
