@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     # Protects onboarding/admin endpoints. Unset = those endpoints are disabled.
     admin_api_key: SecretStr | None = None
 
+    # --- Menu upload (onboarding) ----------------------------------------
+    # Menu PDFs and photos are read by Claude whenever ANTHROPIC_API_KEY is
+    # set, whatever LLM_PROVIDER the chat uses. Without it, PDFs fall back to
+    # their text layer and photos are rejected.
+    menu_extract_model: str = ""  # empty = DEFAULT_MODELS["anthropic"]
+    menu_extract_timeout_seconds: float = Field(default=300.0, ge=10)
+    menu_upload_max_mb: int = Field(default=20, ge=1, le=30)
+
+    @property
+    def menu_vision_enabled(self) -> bool:
+        key = self.anthropic_api_key
+        return key is not None and bool(key.get_secret_value().strip())
+
     @field_validator("database_url")
     @classmethod
     def _psycopg_driver(cls, v: str) -> str:

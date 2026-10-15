@@ -46,6 +46,13 @@ services:
         value: low
       - key: GROQ_API_KEY
         sync: false
+      # Café onboarding (/admin). Render generates the key; copy it from the
+      # dashboard to sign in. ANTHROPIC_API_KEY (optional) lets uploads read
+      # menu photos and scanned PDFs with Claude.
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: RATE_LIMIT_ENABLED
         value: "true"
       # Render's proxy sits in front of the service, so the client IP is

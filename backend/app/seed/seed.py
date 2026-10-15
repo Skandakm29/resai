@@ -35,7 +35,7 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def seed_restaurant(db: Session, spec: dict) -> Restaurant:
+def seed_restaurant(db: Session, spec: dict, *, source: str = "seed", notes: str | None = None) -> Restaurant:
     restaurant = Restaurant(**spec["restaurant"])
     db.add(restaurant)
     db.flush()
@@ -79,8 +79,8 @@ def seed_restaurant(db: Session, spec: dict) -> Restaurant:
     snapshot = menu_service.build_menu(db, restaurant).model_dump(mode="json")
     db.add(
         MenuVersion(
-            restaurant_id=restaurant.id, menu_id=menu.id, version_number=1, status="published", source="seed",
-            snapshot=snapshot, notes=f"Initial demo menu (seed {menu_digest(spec)})", published_at=utcnow(),
+            restaurant_id=restaurant.id, menu_id=menu.id, version_number=1, status="published", source=source,
+            snapshot=snapshot, notes=notes or f"Initial demo menu (seed {menu_digest(spec)})", published_at=utcnow(),
         )
     )
     return restaurant

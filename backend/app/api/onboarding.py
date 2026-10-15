@@ -1,12 +1,22 @@
-"""Owner onboarding endpoints (foundation). Protected by ADMIN_API_KEY."""
+"""Owner onboarding endpoints: upload a menu, review the draft, publish a page.
+
+Protected by ADMIN_API_KEY (the endpoints 404 when it is unset).
+"""
 
 import secrets
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.db import get_db
+from app.ingestion import publish as publisher
+from app.ingestion.extract import ExtractionError, Upload, extract_menu
 from app.ingestion.text_parser import DraftMenu, parse_menu_text
+from app.llm.base import LLMProvider
+from app.llm.factory import get_provider
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -26,3 +36,58 @@ class MenuTextIn(BaseModel):
 def parse_text(body: MenuTextIn) -> DraftMenu:
     """Extract a reviewable draft menu from raw (e.g. OCR'd) text. Does not persist anything."""
     return parse_menu_text(body.text)
+
+
+@router.get("/status", dependencies=[Depends(require_admin)])
+def onboarding_status(settings: Settings = Depends(get_settings)) -> dict:
+    """What the upload can read on this server (shown on the admin page)."""
+    return {"reads_photos_and_scans": settings.menu_vision_enabled, "max_upload_mb": settings.menu_upload_max_mb}
+
+
+@router.post("/menu/extract", response_model=DraftMenu, dependencies=[Depends(require_admin)])
+async def extract(
+    files: list[UploadFile] = File(default=[]),
+    text: str = Form(default="", max_length=50_000),
+    settings: Settings = Depends(get_settings),
+    provider: LLMProvider | None = Depends(get_provider),
+) -> DraftMenu:
+    """Menu PDF / photos / pasted text to a reviewable draft. Does not persist anything."""
+    if len(files) > 10:
+        raise HTTPException(status_code=422, detail="Upload at most 10 files.")
+    uploads, total = [], 0
+    for f in files:
+        data = await f.read()
+        total += len(data)
+        if total > settings.menu_upload_max_mb * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"Uploads are limited to {settings.menu_upload_max_mb} MB.")
+        if data:
+            uploads.append(Upload(filename=f.filename or "upload", content_type=f.content_type or "", data=data))
+    try:
+        # The LLM calls are blocking; keep them off the event loop.
+        return await run_in_threadpool(extract_menu, uploads, text, settings=settings, provider=provider)
+    except ExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/restaurants", response_model=publisher.PublishedCafe, status_code=201, dependencies=[Depends(require_admin)]
+)
+def publish(body: publisher.PublishRequest, db: Session = Depends(get_db)) -> publisher.PublishedCafe:
+    """Publish a reviewed draft as a live page at /r/<slug>."""
+    try:
+        return publisher.publish(db, body)
+    except publisher.SlugTaken as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/restaurants", response_model=list[publisher.PublishedCafe], dependencies=[Depends(require_admin)])
+def list_restaurants(db: Session = Depends(get_db)) -> list[publisher.PublishedCafe]:
+    """Cafés published from uploads, newest first."""
+    return publisher.list_uploaded(db)
+
+
+@router.delete("/restaurants/{slug}", status_code=204, dependencies=[Depends(require_admin)])
+def delete_restaurant(slug: str, db: Session = Depends(get_db)) -> None:
+    """Take down an uploaded café's page (built-in demos can't be deleted)."""
+    if not publisher.delete_uploaded(db, slug):
+        raise HTTPException(status_code=404, detail="No uploaded café with that URL")
