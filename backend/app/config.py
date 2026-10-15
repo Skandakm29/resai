@@ -63,11 +63,16 @@ class Settings(BaseSettings):
     admin_api_key: SecretStr | None = None
 
     # --- Menu upload (onboarding) ----------------------------------------
-    # Menu PDFs and photos are read by Claude whenever ANTHROPIC_API_KEY is
-    # set, whatever LLM_PROVIDER the chat uses. Without it, PDFs fall back to
-    # their text layer and photos are rejected.
-    menu_extract_model: str = ""  # empty = DEFAULT_MODELS["anthropic"]
-    menu_extract_timeout_seconds: float = Field(default=300.0, ge=10)
+    # Menus are read with local OCR, then structured by these open-source
+    # models on Groq. Each model has its own per-minute token limit, so a long
+    # menu's chunks are spread across all of them in parallel.
+    menu_text_models: str = "openai/gpt-oss-120b,openai/gpt-oss-20b"
+    menu_text_chunk_chars: int = Field(default=3000, ge=1000)
+    # Groq counts max_tokens against the per-minute limit up front, so keep it modest.
+    menu_text_max_tokens: int = Field(default=3500, ge=500)
+    # Total time for OCR + structuring (the browser gives up at 330s); parts
+    # not done by then are reported in the draft's warnings.
+    menu_text_budget_seconds: float = Field(default=290.0, ge=10)
     menu_upload_max_mb: int = Field(default=20, ge=1, le=30)
 
     # Self-serve onboarding on the public landing page (no admin key).
@@ -78,9 +83,8 @@ class Settings(BaseSettings):
     public_max_items: int = Field(default=400, ge=1, le=1000)
 
     @property
-    def menu_vision_enabled(self) -> bool:
-        key = self.anthropic_api_key
-        return key is not None and bool(key.get_secret_value().strip())
+    def menu_text_model_list(self) -> list[str]:
+        return [m.strip() for m in self.menu_text_models.split(",") if m.strip()] or [self.llm_model_name]
 
     @field_validator("database_url")
     @classmethod

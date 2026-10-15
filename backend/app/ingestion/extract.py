@@ -1,11 +1,14 @@
 """Menu ingestion - turn an uploaded PDF, photos or pasted text into a draft.
 
-Three routes, best first:
+Everything is read locally and with open-source models; no file is sent to
+an external document API:
 
-1. ``vision``: Claude reads the PDF/photos directly (needs ANTHROPIC_API_KEY).
-2. ``text-llm``: the PDF's text layer (or pasted text) is structured by the
-   configured chat LLM (Groq by default).
-3. ``text-rules``: the same text through the deterministic line parser.
+1. PDF pages and photos go through local OCR (``app.ingestion.ocr``). A PDF's
+   text layer, when it has one, is only used to correct OCR'd prices.
+2. The OCR text (or pasted text) is structured by open-source chat models on
+   Groq, in page-sized chunks spread across several models in parallel so a
+   long menu fits the free tier's per-model token limits (``text-llm``).
+3. Without a working LLM, the deterministic line parser is used (``text-rules``).
 
 Whatever the route, the result is a ``DraftMenu`` for a human to review
 before anything is published. Model output is re-validated item by item;
@@ -14,18 +17,21 @@ an item with a missing name or an unreadable price is dropped with a warning.
 
 from __future__ import annotations
 
-import base64
 import io
-import json
 import logging
+import queue
 import re
+import threading
+import time
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from pydantic import ValidationError
 
-from app.config import DEFAULT_MODELS, Settings
+from app.config import Settings
+from app.ingestion import ocr
 from app.ingestion.text_parser import DraftItem, DraftMenu, DraftProfile, DraftVariant, parse_menu_text
 from app.llm.base import LLMError, LLMProvider
 from app.money import to_money
@@ -71,7 +77,19 @@ Rules:
 - description: the printed description, or null. Do not write your own.
 - profile: the restaurant's name, tagline, address, city and phone if they are
   printed on the menu, otherwise null.
-- Skip taxes, service-charge notes, timings and other non-item text."""
+- Skip taxes, service-charge notes, timings and other non-item text.
+
+The text usually comes from OCR of a designed menu, so:
+- Words may be run together or split ("CLASSICPANEERTIKKA", "HA KK A"). Write
+  names with normal spacing and Title Case ("Classic Paneer Tikka").
+- A price's rupee sign may come out as F, ?, ¥, |, I or Z ("F239", "|379",
+  "IF369"): the price is the digits after it (239, 379, 369). Never alter the
+  digits themselves.
+- Lines can mix two columns; use the layout and headings to keep each price
+  with its own dish.
+- category must be a section heading printed in the text. Items before the
+  first heading in this text belong to the heading the page is about (often
+  repeated as the page title), not a heading you make up."""
 
 _NULLABLE_STR = {"anyOf": [{"type": "string"}, {"type": "null"}]}
 _NULLABLE_BOOL = {"anyOf": [{"type": "boolean"}, {"type": "null"}]}
@@ -149,6 +167,20 @@ def _restaurant_name(raw: str, profile: DraftProfile) -> str:
     return _section_name(name)[:160]
 
 
+def _suspicious_prices(items: list[DraftItem]) -> list[str]:
+    """Prices far above their section's typical price, e.g. ₹1439 where the ₹ was misread as a 1."""
+    by_section: dict[str, list[Decimal]] = {}
+    for item in items:
+        by_section.setdefault(item.category, []).append(item.price)
+    out = []
+    for item in items:
+        prices = sorted(by_section[item.category])
+        typical = prices[len(prices) // 2]
+        if item.price >= 1000 and len(prices) >= 3 and item.price > typical * 3:
+            out.append(f"{item.name} ₹{item.price:.0f}")
+    return out[:15]
+
+
 def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
     """Validate model output into a DraftMenu, dropping (and reporting) bad items."""
     items: list[DraftItem] = []
@@ -190,6 +222,15 @@ def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
                               if k in DraftProfile.model_fields})
     if profile.name:
         profile.name = _restaurant_name(profile.name, profile)
+    # Section names from different chunks can differ only in case ("Soups"/"soups").
+    canonical: dict[str, str] = {}
+    for item in items:
+        key = item.category.lower()
+        canonical.setdefault(key, item.category.title() if item.category.islower() else item.category)
+        item.category = canonical[key]
+    suspicious = _suspicious_prices(items)
+    if suspicious:
+        warnings.append(f"Check these prices, they look too high for their section: {', '.join(suspicious)}")
     if not items:
         warnings.append("No priced items were found. Try a clearer scan or paste the menu text.")
     names = [i.name.lower() for i in items]
@@ -199,75 +240,168 @@ def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
     return DraftMenu(items=items, profile=profile, warnings=warnings, method=method)
 
 
-def pdf_text(data: bytes) -> str:
+def pdf_text_layers(data: bytes) -> list[str]:
+    """Each page's embedded text (exact characters, but often scrambled on designed menus)."""
     from pypdf import PdfReader
     from pypdf.errors import PdfReadError
 
     try:
-        reader = PdfReader(io.BytesIO(data))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
+        return [page.extract_text() or "" for page in PdfReader(io.BytesIO(data)).pages]
     except (PdfReadError, ValueError) as exc:
         raise ExtractionError("That PDF could not be read.") from exc
 
 
-def _vision(uploads: list[Upload], text: str, settings: Settings) -> DraftMenu:
-    import anthropic
-
-    content: list[dict[str, Any]] = []
-    for up in uploads:
-        b64 = base64.standard_b64encode(up.data).decode()
-        if up.content_type == PDF_TYPE:
-            content.append({"type": "document", "source": {"type": "base64", "media_type": PDF_TYPE, "data": b64}})
-        else:
-            content.append({"type": "image", "source": {"type": "base64", "media_type": up.content_type, "data": b64}})
-    if text.strip():
-        content.append({"type": "text", "text": f"Additional menu text:\n{text}"})
-    content.append({"type": "text", "text": "Transcribe this menu (all pages/photos) into the schema."})
-
-    client = anthropic.Anthropic(
-        api_key=settings.anthropic_api_key.get_secret_value().strip(),
-        timeout=settings.menu_extract_timeout_seconds,
-        max_retries=1,
-    )
-    try:
-        # Streamed because a long menu can take a few minutes to write out.
-        with client.messages.stream(
-            model=settings.menu_extract_model.strip() or DEFAULT_MODELS["anthropic"],
-            max_tokens=64000,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": content}],
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
-        ) as stream:
-            response = stream.get_final_message()
-    except anthropic.APIStatusError as exc:
-        raise LLMError(f"Claude API error {exc.status_code}: {getattr(exc, 'message', '')}"[:300]) from exc
-    except anthropic.APIConnectionError as exc:
-        raise LLMError("Claude unreachable or timed out") from exc
-    if response.stop_reason == "refusal":
-        raise LLMError("Claude declined to read this file")
-    if response.stop_reason == "max_tokens":
-        raise LLMError("The menu is too long to read in one go; upload it in parts")
-    raw = next((b.text for b in response.content if b.type == "text"), "")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise LLMError("Claude returned invalid JSON") from exc
-    return draft_from_llm(data, "vision")
+def _merge(results: list[tuple[str, dict[str, Any] | None]], method: str) -> DraftMenu:
+    """Combine per-part model outputs (in page order) into one draft; name the parts that failed."""
+    items: list[Any] = []
+    profile: dict[str, Any] = {}
+    failed = []
+    for label, data in results:
+        if data is None:
+            failed.append(label)
+            continue
+        items += data.get("items") or []
+        for k, v in (data.get("profile") or {}).items():
+            if v and not profile.get(k):
+                profile[k] = v
+    draft = draft_from_llm({"items": items, "profile": profile}, method)
+    if failed:
+        draft.warnings.insert(0, f"Couldn't read {', '.join(failed)}. Add those items by hand, or upload them again.")
+    return draft
 
 
-def _structure_text(text: str, provider: LLMProvider | None) -> DraftMenu:
-    if provider is not None:
+def _chunks(pages: Iterable[tuple[str, str]], max_chars: int) -> Iterator[tuple[str, str]]:
+    """Group consecutive pages into chunks of at most ``max_chars``, yielding each as soon as it's full."""
+    labels: list[str] = []
+    body = ""
+
+    def flush() -> tuple[str, str]:
+        label = labels[0] if len(set(labels)) == 1 else f"{labels[0]} to {labels[-1]}"
+        return label, body
+
+    for label, page in pages:
+        page = page.strip()
+        while page:
+            room = max_chars - len(body) - (1 if body else 0)
+            if room < min(len(page), max_chars // 4) and body:
+                yield flush()
+                labels, body = [], ""
+                continue
+            piece, page = page[: max(room, 1)], page[max(room, 1):]
+            body = f"{body}\n{piece}" if body else piece
+            labels.append(label)
+    if body:
+        yield flush()
+
+
+def _structure_text(
+    pages: Iterable[tuple[str, str]], provider: LLMProvider | None, settings: Settings
+) -> DraftMenu:
+    """Structure page text with the chat models while pages are still arriving (e.g. from OCR).
+
+    Pages are grouped into chunks small enough for free-tier per-minute token
+    limits. One worker per model (each model has its own limit) takes chunks
+    as they're ready, so OCR and structuring overlap. Chunks not done within
+    the time budget are reported in the draft's warnings.
+    """
+    start = time.monotonic()
+    deadline = start + settings.menu_text_budget_seconds
+    seen: list[str] = []
+    chunks: list[tuple[str, str]] = []
+    results: list[dict[str, Any] | None] = []
+    failures: list[int] = []
+    todo: queue.Queue[int] = queue.Queue()
+    produced = threading.Event()
+    error: list[BaseException] = []
+
+    def pages_seen() -> Iterator[tuple[str, str]]:
+        for label, text in pages:
+            seen.append(text)
+            yield label, text
+
+    def produce() -> None:
         try:
-            data = provider.generate_json(
-                system=SYSTEM, user=f"Menu text (extracted from a PDF or pasted):\n\n{text}", schema=SCHEMA,
-                max_tokens=16000,
+            for chunk in _chunks(pages_seen(), settings.menu_text_chunk_chars):
+                chunks.append(chunk)
+                results.append(None)
+                failures.append(0)
+                if provider is not None:
+                    todo.put(len(chunks) - 1)
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
+            error.append(exc)
+        finally:
+            produced.set()
+
+    def work(model: str) -> None:
+        assert provider is not None
+        while time.monotonic() < deadline:
+            try:
+                n = todo.get(timeout=0.5)
+            except queue.Empty:
+                if produced.is_set() and todo.empty():
+                    return
+                continue
+            label, body = chunks[n]
+            try:
+                results[n] = provider.generate_json(
+                    system=SYSTEM, user=f"Menu text ({label}):\n\n{body}", schema=SCHEMA,
+                    max_tokens=settings.menu_text_max_tokens, model=model,
+                )
+            except LLMError as exc:
+                logger.warning("Structuring %s with %s failed: %s", label, model, str(exc)[:200])
+                if "rate limited" in str(exc) or "413" in str(exc):
+                    todo.put(n)  # another model, or this one once its minute window moves
+                    time.sleep(min(8.0, max(0.0, deadline - time.monotonic())))
+                else:
+                    failures[n] += 1
+                    if failures[n] < 3:  # retry an invalid response, possibly on another model
+                        todo.put(n)
+
+    producer = threading.Thread(target=produce, daemon=True)
+    producer.start()
+    workers = [threading.Thread(target=work, args=(m,), daemon=True) for m in settings.menu_text_model_list]
+    if provider is not None:
+        for t in workers:
+            t.start()
+    producer.join()
+    if error:
+        raise error[0]
+    if provider is not None:
+        for t in workers:
+            t.join(max(0.0, deadline - time.monotonic()) + 30)
+    logger.info("Menu read: %d chunks in %.0fs", len(chunks), time.monotonic() - start)
+
+    full = "\n".join(seen)
+    if not any(results):
+        draft = parse_menu_text(full)
+        if provider is not None:
+            draft.warnings.insert(
+                0, "The AI couldn't read this menu, so only simple 'name price' lines were picked up."
             )
-            draft = draft_from_llm(data, "text-llm")
-            if draft.items:
-                return draft
-        except LLMError as exc:
-            logger.warning("LLM menu structuring failed, using the line parser: %s", exc)
-    return parse_menu_text(text)
+        return draft
+    return _merge([(label, results[n]) for n, (label, _) in enumerate(chunks)], "text-llm")
+
+
+def _pages(uploads: list[Upload], text: str) -> Iterator[tuple[str, str]]:
+    """Each page's text in order, OCR'd lazily so structuring can start on the first pages."""
+    for up in uploads:
+        if up.content_type == PDF_TYPE:
+            layers = pdf_text_layers(up.data)
+            n = 0
+            try:
+                for n, lines in enumerate(ocr.pdf_pages_ocr(up.data, layers), start=1):
+                    yield f"{up.filename} page {n}", "\n".join(lines)
+            except Exception as exc:  # noqa: BLE001 - OCR is best effort; fall back to the text layer
+                logger.warning("OCR failed for %s after %d pages, using its text layer: %s", up.filename, n, exc)
+                for m, layer in enumerate(layers[n:], start=n + 1):
+                    yield f"{up.filename} page {m}", layer
+        else:
+            try:
+                yield up.filename, "\n".join(ocr.ocr_photo(up.data))
+            except Exception as exc:  # noqa: BLE001
+                raise ExtractionError(f"{up.filename}: couldn't read that image.") from exc
+    if text.strip():
+        yield "pasted text", text
 
 
 def extract_menu(
@@ -281,30 +415,7 @@ def extract_menu(
                 f"{up.filename}: unsupported file type ({up.content_type or 'unknown'}). "
                 "Use PDF, JPG, PNG or WebP (convert iPhone HEIC photos to JPG)."
             )
-
-    if uploads and settings.menu_vision_enabled:
-        try:
-            draft = _vision(uploads, text, settings)
-            if draft.items:
-                return draft
-            logger.warning("Vision extraction found no items; trying the text route")
-        except LLMError as exc:
-            logger.warning("Vision extraction failed: %s", exc)
-            if not any(u.content_type == PDF_TYPE for u in uploads) and not text.strip():
-                raise ExtractionError(f"Couldn't read the photos: {exc}") from exc
-
-    if any(u.content_type in IMAGE_TYPES for u in uploads) and not settings.menu_vision_enabled:
-        if not text.strip() and all(u.content_type in IMAGE_TYPES for u in uploads):
-            raise ExtractionError(
-                "Reading photos needs ANTHROPIC_API_KEY on the server. Upload a PDF or paste the menu text instead."
-            )
-
-    parts = [pdf_text(u.data) for u in uploads if u.content_type == PDF_TYPE]
-    if text.strip():
-        parts.append(text)
-    combined = "\n".join(p for p in parts if p.strip())
-    if not combined.strip():
-        raise ExtractionError(
-            "The PDF has no text layer (it's a scan). Set ANTHROPIC_API_KEY to read scans, or paste the menu text."
-        )
-    return _structure_text(combined[:60_000], provider)
+    draft = _structure_text(_pages(uploads, text), provider, settings)
+    if not draft.items and not draft.unparsed_lines:
+        raise ExtractionError("No text could be read from that file. Try a clearer photo, or paste the menu text.")
+    return draft

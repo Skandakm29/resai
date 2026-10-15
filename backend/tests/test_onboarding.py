@@ -1,7 +1,12 @@
 """Upload a menu -> review the draft -> publish a live page."""
 
+import io
+
 from app.config import get_settings
+from app.ingestion import extract
 from app.ingestion.extract import draft_from_llm
+from app.ingestion.ocr import fix_prices
+from app.llm.base import LLMError
 from tests.conftest import chat
 
 ADMIN = {"X-Admin-Key": "test-admin-key"}
@@ -72,14 +77,98 @@ def test_extract_from_pdf_text_layer(client):
     assert [(i["name"], i["price"]) for i in r.json()["items"]] == [("Cappuccino", "210.00"), ("Flat White", "230.00")]
 
 
-def test_extract_rejects_photos_without_vision_and_bad_types(client):
-    assert not get_settings().menu_vision_enabled
-    photo = ("files", ("menu.jpg", b"\xff\xd8\xff", "image/jpeg"))
+def _photo(lines: list[str]) -> bytes:
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (900, 120 + 70 * len(lines)), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=44)
+    for n, line in enumerate(lines):
+        draw.text((40, 40 + 70 * n), line, fill="black", font=font)
+    buf = io.BytesIO()
+    image.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
+
+
+def test_extract_reads_photos_with_ocr(client):
+    assert client.get("/api/start/status").json()["reads_photos_and_scans"] is True
+    photo = ("files", ("menu.jpg", _photo(["HOT DRINKS", "Masala Chai 90", "Filter Coffee 110"]), "image/jpeg"))
     r = client.post("/api/onboarding/menu/extract", files=[photo], headers=ADMIN)
-    assert r.status_code == 422 and "ANTHROPIC_API_KEY" in r.json()["detail"]
+    assert r.status_code == 200, r.text
+    assert [(i["name"], i["price"]) for i in r.json()["items"]] == [("Masala Chai", "90.00"), ("Filter Coffee", "110.00")]
+
+
+def test_extract_rejects_broken_images_and_bad_types(client):
+    broken = ("files", ("menu.jpg", b"\xff\xd8\xff", "image/jpeg"))
+    r = client.post("/api/onboarding/menu/extract", files=[broken], headers=ADMIN)
+    assert r.status_code == 422 and "couldn't read that image" in r.json()["detail"]
     r = client.post("/api/onboarding/menu/extract", files=[("files", ("m.heic", b"x", "image/heic"))], headers=ADMIN)
     assert r.status_code == 422 and "HEIC" in r.json()["detail"]
     assert client.post("/api/onboarding/menu/extract", data={"text": ""}, headers=ADMIN).status_code == 422
+
+
+def test_ocr_price_fixes_use_the_text_layer():
+    known = {"239", "309", "369", "379"}
+    assert fix_prices("BAKEDPESHAWARIALOOIF379", known) == "BAKEDPESHAWARIALOO₹379"
+    assert fix_prices("PURANI DELHI KE SOYA   1369", known) == "PURANI DELHI KE SOYA   ₹369"
+    assert fix_prices("HALF I FULL   F239|F309", known) == "HALF I FULL   ₹239 ₹309"
+    # Without exact numbers to check against, nothing is rewritten.
+    assert fix_prices("SOYA 1369", set()) == "SOYA 1369"
+    assert fix_prices("Serves 2   125 ml", known) == "Serves 2   125 ml"
+
+
+class _FakeModels:
+    """A provider whose first call per model is rate limited, then answers from the chunk text."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def generate_json(self, *, system, user, schema, max_tokens, model=None):
+        import time
+
+        self.calls.append(model)
+        time.sleep(0.05)  # a real call takes a while, so both workers get chunks
+        if self.calls.count(model) == 1:
+            raise LLMError("LLM rate limited")
+        items = []
+        for line in user.splitlines():
+            parts = line.rsplit(" ", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                items.append({"category": "Menu", "name": parts[0], "price": parts[1]})
+        return {"profile": {"name": None}, "items": items}
+
+
+def test_structuring_spreads_chunks_across_models(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "menu_text_models", "model-a,model-b")
+    monkeypatch.setattr(settings, "menu_text_chunk_chars", 1000)
+    monkeypatch.setattr(extract, "time", _FastTime())
+    pages = [(f"page {n}", "\n".join(f"Dish {n}-{i} {100 + i}" for i in range(60))) for n in range(1, 4)]
+    fake = _FakeModels()
+    draft = extract._structure_text(iter(pages), fake, settings)
+    assert len(draft.items) == 180 and draft.method == "text-llm" and not draft.warnings
+    assert {"model-a", "model-b"} <= set(fake.calls)
+
+
+class _FastTime:
+    """time module stand-in: sleeping is instant (rate-limit waits in tests)."""
+
+    def __init__(self):
+        import time as _t
+
+        self._t = _t
+
+    def monotonic(self):
+        return self._t.monotonic()
+
+    def sleep(self, _seconds):
+        return None
+
+
+def test_suspicious_prices_are_flagged():
+    items = [{"category": "Mains", "name": f"Dish {i}", "price": p} for i, p in enumerate(["369", "379", "1439", "349"])]
+    draft = draft_from_llm({"profile": {}, "items": items}, "text-llm")
+    assert any("Dish 2 ₹1439" in w for w in draft.warnings)
 
 
 def test_llm_output_is_validated():
@@ -177,7 +266,6 @@ def _self_publish(client, items, slug="bean-there", **owner):
 
 
 def test_self_serve_extract_and_publish_without_admin_key(client):
-    assert client.get("/api/start/status").json()["reads_photos_and_scans"] is False
     draft = client.post("/api/start/extract", data={"text": MENU_TEXT}).json()
     r = _self_publish(client, draft["items"])
     assert r.status_code == 201, r.text

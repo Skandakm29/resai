@@ -14,6 +14,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.ingestion import publish as publisher
 from app.ingestion.extract import ExtractionError, Upload, extract_menu
+from app.ingestion.ocr import ocr_available
 from app.ingestion.text_parser import DraftMenu, parse_menu_text
 from app.llm.base import LLMProvider
 from app.llm.factory import get_provider
@@ -42,7 +43,7 @@ def parse_text(body: MenuTextIn) -> DraftMenu:
 @router.get("/status", dependencies=[Depends(require_admin)])
 def onboarding_status(settings: Settings = Depends(get_settings)) -> dict:
     """What the upload can read on this server (shown on the admin page)."""
-    return {"reads_photos_and_scans": settings.menu_vision_enabled, "max_upload_mb": settings.menu_upload_max_mb}
+    return {"reads_photos_and_scans": ocr_available(), "max_upload_mb": settings.menu_upload_max_mb}
 
 
 async def _extract(
@@ -115,7 +116,7 @@ def require_public(settings: Settings = Depends(get_settings)) -> None:
 @public.get("/status", dependencies=[Depends(require_public)])
 def public_status(settings: Settings = Depends(get_settings)) -> dict:
     return {
-        "reads_photos_and_scans": settings.menu_vision_enabled,
+        "reads_photos_and_scans": ocr_available(),
         "max_upload_mb": settings.menu_upload_max_mb,
         "max_items": settings.public_max_items,
     }
