@@ -1,4 +1,7 @@
-/** Admin-only client for /api/onboarding (menu upload -> draft -> live page). */
+/** Clients for menu upload -> draft -> live page: admin (/api/onboarding) and self-serve (/api/start). */
+
+/** The product name on the public landing page. */
+export const PRODUCT = "Resai";
 
 export type DraftVariant = { name: string; price: string };
 
@@ -50,9 +53,15 @@ export type PublishedCafe = {
   category_count: number;
   city: string | null;
   published_at: string | null;
+  owner_name?: string | null;
+  owner_email?: string | null;
 };
 
-export type OnboardingStatus = { reads_photos_and_scans: boolean; max_upload_mb: number };
+export type Owner = { name: string; email: string };
+
+export type OnboardingStatus = { reads_photos_and_scans: boolean; max_upload_mb: number; max_items?: number };
+
+export const EMAIL_RE = /^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$/;
 
 export class AdminError extends Error {
   constructor(
@@ -76,14 +85,15 @@ export function slugify(text: string): string {
 
 export const PRICE_RE = /^\d{1,7}(\.\d{1,2})?$/;
 
-async function call<T>(key: string, path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
+/** `key` = admin key for /api/onboarding; null = the public /api/start endpoints. */
+async function call<T>(key: string | null, path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? 60_000);
   let res: Response;
   try {
-    res = await fetch(`/api/onboarding${path}`, {
+    res = await fetch(`${key === null ? "/api/start" : "/api/onboarding"}${path}`, {
       ...init,
-      headers: { "X-Admin-Key": key, ...(init.headers || {}) },
+      headers: { ...(key === null ? {} : { "X-Admin-Key": key }), ...(init.headers || {}) },
       signal: controller.signal,
     });
   } catch {
@@ -105,7 +115,8 @@ async function call<T>(key: string, path: string, init: RequestInit & { timeoutM
       /* non-JSON error body */
     }
     if (res.status === 401) detail = "That admin key isn't right.";
-    if (res.status === 404 && !detail) detail = "Onboarding is off on this server (set ADMIN_API_KEY).";
+    if (res.status === 404 && !detail) detail = "Onboarding is off on this server.";
+    if (res.status >= 500) detail = "Something went wrong on our side. Please try again.";
     throw new AdminError(detail || `Request failed (${res.status})`, res.status);
   }
   return (res.status === 204 ? undefined : await res.json()) as T;
@@ -117,31 +128,54 @@ const json = (body: unknown): RequestInit => ({
   headers: { "Content-Type": "application/json" },
 });
 
+function profileBody(profile: CafeProfile) {
+  return {
+    ...profile,
+    slug: profile.slug || null,
+    tagline: profile.tagline || null,
+    address_line: profile.address_line || null,
+    city: profile.city || null,
+    phone: profile.phone || null,
+    brand_color: profile.brand_color || null,
+  };
+}
+
+function extract(key: string | null, files: File[], text: string) {
+  const form = new FormData();
+  files.forEach((f) => form.append("files", f));
+  form.append("text", text);
+  // Reading a long menu with Claude can take a few minutes.
+  return call<DraftMenu>(key, key === null ? "/extract" : "/menu/extract", {
+    method: "POST",
+    body: form,
+    timeoutMs: 330_000,
+  });
+}
+
+/** What the upload and review steps need, for either the admin or the public page. */
+export type OnboardClient = {
+  status: () => Promise<OnboardingStatus>;
+  extract: (files: File[], text: string) => Promise<DraftMenu>;
+  publish: (profile: CafeProfile, items: DraftItem[], opts: { replace?: boolean; owner?: Owner }) => Promise<PublishedCafe>;
+};
+
+export function adminClient(key: string): OnboardClient {
+  return {
+    status: () => call<OnboardingStatus>(key, "/status", { timeoutMs: 90_000 }),
+    extract: (files, text) => extract(key, files, text),
+    publish: (profile, items, { replace = false }) =>
+      call<PublishedCafe>(key, "/restaurants", json({ profile: profileBody(profile), items, replace })),
+  };
+}
+
+export const publicClient: OnboardClient = {
+  status: () => call<OnboardingStatus>(null, "/status", { timeoutMs: 90_000 }),
+  extract: (files, text) => extract(null, files, text),
+  publish: (profile, items, { owner }) =>
+    call<PublishedCafe>(null, "/publish", json({ profile: profileBody(profile), items, owner })),
+};
+
 export const onboarding = {
-  status: (key: string) => call<OnboardingStatus>(key, "/status", { timeoutMs: 90_000 }),
-  extract: (key: string, files: File[], text: string) => {
-    const form = new FormData();
-    files.forEach((f) => form.append("files", f));
-    form.append("text", text);
-    // Reading a long menu with Claude can take a few minutes.
-    return call<DraftMenu>(key, "/menu/extract", { method: "POST", body: form, timeoutMs: 330_000 });
-  },
-  publish: (key: string, profile: CafeProfile, items: DraftItem[], replace: boolean) =>
-    call<PublishedCafe>(key, "/restaurants", {
-      ...json({
-        profile: {
-          ...profile,
-          slug: profile.slug || null,
-          tagline: profile.tagline || null,
-          address_line: profile.address_line || null,
-          city: profile.city || null,
-          phone: profile.phone || null,
-          brand_color: profile.brand_color || null,
-        },
-        items,
-        replace,
-      }),
-    }),
   list: (key: string) => call<PublishedCafe[]>(key, "/restaurants"),
   remove: (key: string, slug: string) =>
     call<void>(key, `/restaurants/${encodeURIComponent(slug)}`, { method: "DELETE" }),

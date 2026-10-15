@@ -17,6 +17,7 @@ from app.ingestion.extract import ExtractionError, Upload, extract_menu
 from app.ingestion.text_parser import DraftMenu, parse_menu_text
 from app.llm.base import LLMProvider
 from app.llm.factory import get_provider
+from app.ratelimit import hourly_limit
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -44,14 +45,9 @@ def onboarding_status(settings: Settings = Depends(get_settings)) -> dict:
     return {"reads_photos_and_scans": settings.menu_vision_enabled, "max_upload_mb": settings.menu_upload_max_mb}
 
 
-@router.post("/menu/extract", response_model=DraftMenu, dependencies=[Depends(require_admin)])
-async def extract(
-    files: list[UploadFile] = File(default=[]),
-    text: str = Form(default="", max_length=50_000),
-    settings: Settings = Depends(get_settings),
-    provider: LLMProvider | None = Depends(get_provider),
+async def _extract(
+    files: list[UploadFile], text: str, settings: Settings, provider: LLMProvider | None
 ) -> DraftMenu:
-    """Menu PDF / photos / pasted text to a reviewable draft. Does not persist anything."""
     if len(files) > 10:
         raise HTTPException(status_code=422, detail="Upload at most 10 files.")
     uploads, total = [], 0
@@ -67,6 +63,17 @@ async def extract(
         return await run_in_threadpool(extract_menu, uploads, text, settings=settings, provider=provider)
     except ExtractionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/menu/extract", response_model=DraftMenu, dependencies=[Depends(require_admin)])
+async def extract(
+    files: list[UploadFile] = File(default=[]),
+    text: str = Form(default="", max_length=50_000),
+    settings: Settings = Depends(get_settings),
+    provider: LLMProvider | None = Depends(get_provider),
+) -> DraftMenu:
+    """Menu PDF / photos / pasted text to a reviewable draft. Does not persist anything."""
+    return await _extract(files, text, settings, provider)
 
 
 @router.post(
@@ -91,3 +98,60 @@ def delete_restaurant(slug: str, db: Session = Depends(get_db)) -> None:
     """Take down an uploaded café's page (built-in demos can't be deleted)."""
     if not publisher.delete_uploaded(db, slug):
         raise HTTPException(status_code=404, detail="No uploaded café with that URL")
+
+
+# --- Self-serve (public landing page) ------------------------------------
+# No admin key: a restaurant owner uploads a menu and gets a link straight
+# away. Rate limited per IP per hour, since every read is an LLM call.
+
+public = APIRouter(prefix="/api/start", tags=["self-serve onboarding"])
+
+
+def require_public(settings: Settings = Depends(get_settings)) -> None:
+    if not settings.public_onboarding_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sign-ups are closed right now.")
+
+
+@public.get("/status", dependencies=[Depends(require_public)])
+def public_status(settings: Settings = Depends(get_settings)) -> dict:
+    return {
+        "reads_photos_and_scans": settings.menu_vision_enabled,
+        "max_upload_mb": settings.menu_upload_max_mb,
+        "max_items": settings.public_max_items,
+    }
+
+
+@public.post(
+    "/extract",
+    response_model=DraftMenu,
+    dependencies=[Depends(require_public), Depends(hourly_limit("start-extract", "public_extract_per_hour"))],
+)
+async def public_extract(
+    files: list[UploadFile] = File(default=[]),
+    text: str = Form(default="", max_length=50_000),
+    settings: Settings = Depends(get_settings),
+    provider: LLMProvider | None = Depends(get_provider),
+) -> DraftMenu:
+    """Read an owner's menu into a draft they can check. Does not persist anything."""
+    return await _extract(files, text, settings, provider)
+
+
+@public.post(
+    "/publish",
+    response_model=publisher.PublishedCafe,
+    status_code=201,
+    dependencies=[Depends(require_public), Depends(hourly_limit("start-publish", "public_publish_per_hour"))],
+)
+def public_publish(
+    body: publisher.SelfServePublishRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> publisher.PublishedCafe:
+    """Publish the owner's checked menu. A taken link gets a -2, -3... suffix."""
+    if len(body.items) > settings.public_max_items:
+        raise HTTPException(status_code=422, detail=f"Menus are limited to {settings.public_max_items} items.")
+    req = publisher.PublishRequest(profile=body.profile, items=body.items, replace=False)
+    try:
+        return publisher.publish(db, req, owner=body.owner, auto_slug=True)
+    except publisher.SlugTaken as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

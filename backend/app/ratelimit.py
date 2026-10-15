@@ -68,3 +68,22 @@ def rate_limit(bucket: str):
             )
 
     return dependency
+
+
+def hourly_limit(bucket: str, setting: str):
+    """Per-IP limit of ``getattr(settings, setting)`` requests per hour."""
+
+    def dependency(request: Request) -> None:
+        settings = get_settings()
+        if not settings.rate_limit_enabled:
+            return
+        retry = limiter.check(f"{bucket}:{client_ip(request)}", getattr(settings, setting), window=3600.0)
+        if retry is not None:
+            minutes = int(retry // 60) + 1
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"You've hit the hourly limit. Please try again in about {minutes} minutes.",
+                headers={"Retry-After": str(int(retry) + 1)},
+            )
+
+    return dependency

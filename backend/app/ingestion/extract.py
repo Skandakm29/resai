@@ -18,6 +18,7 @@ import base64
 import io
 import json
 import logging
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -136,6 +137,18 @@ def _section_name(raw: Any) -> str:
     return name.title() if name.isupper() else name
 
 
+def _restaurant_name(raw: str, profile: DraftProfile) -> str:
+    """"THE BREW ROOM - Koramangala, Bengaluru" -> "The Brew Room" when the tail is the address/city."""
+    name = " ".join(raw.split())
+    parts = re.split(r"(\s+[-–|·]\s+|,\s+)", name, maxsplit=1)
+    if len(parts) == 3:
+        head, tail = parts[0], parts[2].lower()
+        place = " ".join(filter(None, [profile.address_line, profile.city])).lower()
+        if place and all(w in place for w in re.findall(r"[a-z]+", tail)):
+            name = head
+    return _section_name(name)[:160]
+
+
 def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
     """Validate model output into a DraftMenu, dropping (and reporting) bad items."""
     items: list[DraftItem] = []
@@ -176,7 +189,7 @@ def draft_from_llm(data: dict[str, Any], method: str) -> DraftMenu:
     profile = DraftProfile(**{k: (str(v).strip() or None) if v else None for k, v in profile_raw.items()
                               if k in DraftProfile.model_fields})
     if profile.name:
-        profile.name = _section_name(profile.name)[:160]
+        profile.name = _restaurant_name(profile.name, profile)
     if not items:
         warnings.append("No priced items were found. Try a clearer scan or paste the menu text.")
     names = [i.name.lower() for i in items]

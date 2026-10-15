@@ -164,3 +164,64 @@ def test_delete_uploaded_cafe(client):
     assert client.delete("/api/onboarding/restaurants/fernwood", headers=ADMIN).status_code == 404
     assert client.delete("/api/onboarding/restaurants/bean-there", headers=ADMIN).status_code == 204
     assert client.get("/api/restaurants/bean-there").status_code == 404
+
+
+# --- Self-serve (public landing page) ---------------------------------------
+
+OWNER = {"name": "Asha", "email": "Asha@BeanThere.in"}
+
+
+def _self_publish(client, items, slug="bean-there", **owner):
+    profile = {"name": "Bean There", "slug": slug, "city": "Bengaluru"}
+    return client.post("/api/start/publish", json={"profile": profile, "items": items, "owner": {**OWNER, **owner}})
+
+
+def test_self_serve_extract_and_publish_without_admin_key(client):
+    assert client.get("/api/start/status").json()["reads_photos_and_scans"] is False
+    draft = client.post("/api/start/extract", data={"text": MENU_TEXT}).json()
+    r = _self_publish(client, draft["items"])
+    assert r.status_code == 201, r.text
+    assert r.json()["path"] == "/r/bean-there"
+    assert client.get("/api/restaurants/bean-there/menu").status_code == 200
+
+    # Owner contact is stored for the admin list, never on the public profile.
+    assert "owner_email" not in client.get("/api/restaurants/bean-there").json()
+    listed = client.get("/api/onboarding/restaurants", headers=ADMIN).json()
+    assert (listed[0]["owner_name"], listed[0]["owner_email"]) == ("Asha", "asha@beanthere.in")
+
+
+def test_self_serve_never_overwrites_and_picks_a_free_link(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "public_publish_per_hour", 10)
+    items = [{"category": "Coffee", "name": "Latte", "price": "200"}]
+    assert _self_publish(client, items).json()["path"] == "/r/bean-there"
+    assert _self_publish(client, items).json()["path"] == "/r/bean-there-2"
+    assert _self_publish(client, items, slug="fernwood").json()["path"] == "/r/fernwood-2"
+    assert _self_publish(client, items, slug="admin").json()["path"] == "/r/admin-2"
+    assert [i["name"] for c in client.get("/api/restaurants/fernwood/menu").json()["categories"] for i in c["items"]] != ["Latte"]
+
+
+def test_self_serve_validation_and_limits(client, monkeypatch):
+    items = [{"category": "Coffee", "name": "Latte", "price": "200"}]
+    assert _self_publish(client, items, email="not-an-email").status_code == 422
+    monkeypatch.setattr(get_settings(), "public_max_items", 1)
+    assert _self_publish(client, items * 2).status_code == 422
+
+    monkeypatch.setattr(get_settings(), "public_extract_per_hour", 2)
+    for _ in range(2):
+        assert client.post("/api/start/extract", data={"text": MENU_TEXT}).status_code == 200
+    r = client.post("/api/start/extract", data={"text": MENU_TEXT})
+    assert r.status_code == 429 and "hourly limit" in r.json()["detail"]
+
+    monkeypatch.setattr(get_settings(), "public_onboarding_enabled", False)
+    assert client.get("/api/start/status").status_code == 404
+
+
+def test_restaurant_name_drops_a_trailing_location():
+    def name(raw, address=None, city=None):
+        profile = {"name": raw, "tagline": None, "address_line": address, "city": city, "phone": None}
+        return draft_from_llm({"profile": profile, "items": []}, "vision").profile.name
+
+    assert name("THE BREW ROOM - Koramangala, Bengaluru", "Koramangala, Bengaluru", "Bengaluru") == "The Brew Room"
+    assert name("Brew Room, Bengaluru", None, "Bengaluru") == "Brew Room"
+    assert name("Toit - Brewpub", "Indiranagar", "Bengaluru") == "Toit - Brewpub"
+    assert name("Café Noir", None, None) == "Café Noir"

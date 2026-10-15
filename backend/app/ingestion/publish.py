@@ -23,7 +23,8 @@ from app.money import format_inr
 from app.seed.seed import seed_restaurant, slugify
 
 SLUG_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
-RESERVED_SLUGS = {"admin", "api", "new", "r"}
+RESERVED_SLUGS = {"admin", "api", "new", "r", "start"}
+EMAIL_RE = r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$"
 
 
 class CafeProfile(BaseModel):
@@ -37,11 +38,24 @@ class CafeProfile(BaseModel):
     assistant_icon: Literal["coffee", "utensils", "pizza", "drink", "dessert", "tea"] = "coffee"
 
 
+class Owner(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(max_length=254, pattern=EMAIL_RE)
+
+
 class PublishRequest(BaseModel):
     profile: CafeProfile
     items: list[DraftItem] = Field(min_length=1, max_length=1000)
     # Re-publishing over an existing uploaded café replaces its menu (same URL).
     replace: bool = False
+
+
+class SelfServePublishRequest(BaseModel):
+    """What a restaurant owner sends from the public page (no replacing)."""
+
+    profile: CafeProfile
+    items: list[DraftItem] = Field(min_length=1, max_length=1000)
+    owner: Owner
 
 
 class PublishedCafe(BaseModel):
@@ -52,6 +66,8 @@ class PublishedCafe(BaseModel):
     category_count: int
     city: str | None = None
     published_at: str | None = None
+    owner_name: str | None = None
+    owner_email: str | None = None
 
 
 class SlugTaken(Exception):
@@ -168,8 +184,21 @@ def _is_uploaded(db: Session, restaurant: Restaurant) -> bool:
     ) is not None
 
 
-def publish(db: Session, req: PublishRequest) -> PublishedCafe:
+def _free_slug(db: Session, base: str) -> str:
+    """``base``, or ``base-2``, ``base-3``... - the first that isn't taken or reserved."""
+    taken = set(db.scalars(select(Restaurant.slug).where(Restaurant.slug.like(f"{base}%"))).all()) | RESERVED_SLUGS
+    slug, n = base, 2
+    while slug in taken:
+        suffix = f"-{n}"
+        slug, n = f"{base[: 60 - len(suffix)].rstrip('-')}{suffix}", n + 1
+    return slug
+
+
+def publish(db: Session, req: PublishRequest, *, owner: Owner | None = None, auto_slug: bool = False) -> PublishedCafe:
+    """Publish a draft. ``auto_slug`` picks a free link instead of failing on a taken one."""
     slug = req.profile.slug or slugify(req.profile.name)[:60].strip("-") or "cafe"
+    if auto_slug:
+        slug = _free_slug(db, slug)
     if slug in RESERVED_SLUGS:
         raise SlugTaken(f"'{slug}' is reserved. Pick another URL name.")
     existing = db.scalar(select(Restaurant).where(Restaurant.slug == slug))
@@ -184,10 +213,13 @@ def publish(db: Session, req: PublishRequest) -> PublishedCafe:
     restaurant = seed_restaurant(
         db, spec, source="upload", notes=f"Uploaded menu, {len(req.items)} items ({utcnow():%Y-%m-%d})"
     )
+    if owner is not None:
+        restaurant.owner_name, restaurant.owner_email = owner.name.strip(), owner.email.strip().lower()
     db.commit()
     return PublishedCafe(
         slug=slug, name=restaurant.name, path=f"/r/{slug}", item_count=len(req.items),
         category_count=len(spec["categories"]), city=restaurant.city, published_at=utcnow().isoformat(),
+        owner_name=restaurant.owner_name, owner_email=restaurant.owner_email,
     )
 
 
@@ -206,6 +238,7 @@ def list_uploaded(db: Session) -> list[PublishedCafe]:
                 slug=restaurant.slug, name=restaurant.name, path=f"/r/{restaurant.slug}", item_count=len(items),
                 category_count=len(set(items)), city=restaurant.city,
                 published_at=published_at.isoformat() if published_at else None,
+                owner_name=restaurant.owner_name, owner_email=restaurant.owner_email,
             )
         )
     return out

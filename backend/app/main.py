@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
 
     app.include_router(routes.router)
     app.include_router(onboarding.router)
+    app.include_router(onboarding.public)
 
     mode = (
         f"LLM ({settings.llm_provider}: {settings.llm_model_name})" if settings.llm_enabled else "deterministic demo mode"

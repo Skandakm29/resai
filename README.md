@@ -72,7 +72,7 @@ cd frontend
 npm install
 cp .env.example .env.local
 npm run dev
-#   App: http://localhost:3000  (redirects to /r/meloghrano)
+#   App: http://localhost:3000  (landing page; demo at /r/moai)
 ```
 
 ### Demo mode vs LLM mode
@@ -132,17 +132,32 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#render-one-click-blueprint).
 | POST | `/api/onboarding/menu/extract` | Menu PDF / photos / text (multipart) to reviewable draft (admin) |
 | POST | `/api/onboarding/restaurants` | Publish a reviewed draft as `/r/{slug}` (admin) |
 | GET / DELETE | `/api/onboarding/restaurants[/{slug}]` | List or take down uploaded cafés (admin) |
+| GET | `/api/start/status` | Self-serve: what uploads can read |
+| POST | `/api/start/extract` | Self-serve: menu upload to draft (no key; per-IP hourly limit) |
+| POST | `/api/start/publish` | Self-serve: publish with owner name + email; a taken link gets `-2` |
 
 Interactive OpenAPI docs are at `/docs`. Money is always serialised as
 decimal strings (`"210.00"`), never floats.
 
 ## Onboard a café (upload a menu, get a link)
 
-1. Set `ADMIN_API_KEY` (and optionally `ANTHROPIC_API_KEY`) on the backend.
-2. Open `/admin`, enter the key, and drop in the menu PDF or photos.
-3. Check the draft: café name, link, prices, sections. Fix anything off.
-4. **Publish page**. You get the live link, plus a cold email you can copy
-   or open in your mail app. Re-publishing to the same link replaces the menu.
+**Self-serve (`/`).** The home page is a landing page for restaurant owners.
+They upload a menu, check the items, leave their name and email, and get
+their live link and a QR code straight away. No key is needed. Each IP can
+read 6 menus and publish 3 pages per hour (`PUBLIC_EXTRACT_PER_HOUR`,
+`PUBLIC_PUBLISH_PER_HOUR`), and `PUBLIC_ONBOARDING_ENABLED=false` closes
+sign-ups. Self-serve never overwrites a page: a taken link gets `-2`, `-3`...
+
+**Admin (`/admin`).** For your own outreach, behind `ADMIN_API_KEY`:
+
+1. Open `/admin`, enter the key, and drop in the menu PDF or photos.
+2. Check the draft: café name, link, prices, sections. Fix anything off.
+3. **Publish page**. You get the live link, a QR code, and a cold email you
+   can copy or open in your mail app. Re-publishing to the same link
+   replaces the menu. The sidebar lists every published page, with the
+   owner's contact for self-serve sign-ups, and can take pages down.
+
+`ANTHROPIC_API_KEY` (optional) lets both read menu photos and scanned PDFs.
 
 ## Try these
 
@@ -164,13 +179,13 @@ See [docs/TESTING.md](docs/TESTING.md#sample-conversations) for the full list:
   availability against the backend and then tells the customer to order
   at the counter. No order is placed and no payment is taken, and the UI
   never says otherwise (`ordering_enabled` is `false` for the demo).
-- **Onboarding (admin only):** `/admin` takes a menu PDF, photos or pasted
+- **Onboarding:** the landing page (`/`, self-serve) and `/admin` take a menu PDF, photos or pasted
   text, shows an editable draft (names, prices, sections, type, veg), and
   publishes it at `/r/{slug}` with a ready-to-send cold email. Claude reads
   photos and scanned PDFs when `ANTHROPIC_API_KEY` is set; otherwise the PDF
   text layer goes through the chat LLM (or the rule parser). Uploaded menus
   start with allergens and ingredients unverified. There are no owner
-  accounts yet: one shared `ADMIN_API_KEY` protects the page.
+  accounts yet, so owners can't edit their own page after publishing.
 - **Images:** the seed has no photos. Cards show a neutral illustrated
   placeholder, never a generated "photo" of the dish.
 

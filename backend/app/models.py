@@ -63,6 +63,9 @@ class Restaurant(TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), default="INR")
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kolkata")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Who published an uploaded menu (self-serve onboarding). Never shown publicly.
+    owner_name: Mapped[str | None] = mapped_column(String(120))
+    owner_email: Mapped[str | None] = mapped_column(String(254))
 
     settings: Mapped[RestaurantSettings | None] = relationship(
         back_populates="restaurant", uselist=False, cascade="all, delete-orphan"

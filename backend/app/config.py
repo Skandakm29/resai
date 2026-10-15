@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     menu_extract_timeout_seconds: float = Field(default=300.0, ge=10)
     menu_upload_max_mb: int = Field(default=20, ge=1, le=30)
 
+    # Self-serve onboarding on the public landing page (no admin key).
+    # Limits are per client IP per hour; reading a menu costs an LLM call.
+    public_onboarding_enabled: bool = True
+    public_extract_per_hour: int = Field(default=6, ge=1)
+    public_publish_per_hour: int = Field(default=3, ge=1)
+    public_max_items: int = Field(default=400, ge=1, le=1000)
+
     @property
     def menu_vision_enabled(self) -> bool:
         key = self.anthropic_api_key
